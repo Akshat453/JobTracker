@@ -1,13 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Briefcase, KanbanSquare, FileText, Mail, CalendarClock, Bell, BarChart3, Settings, X,
+  LayoutDashboard, Briefcase, FileText, Mail, CalendarClock, Bell, BarChart3, Settings, X,
 } from 'lucide-react';
 import { cn } from '../../lib/format.js';
 
 export const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/applications', label: 'Applications', icon: Briefcase },
-  { to: '/kanban', label: 'Kanban Board', icon: KanbanSquare },
   { to: '/resumes', label: 'Resume Library', icon: FileText },
   { to: '/email-accounts', label: 'Email Accounts', icon: Mail },
   { to: '/interviews', label: 'Interviews', icon: CalendarClock },

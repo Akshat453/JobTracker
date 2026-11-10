@@ -14,11 +14,11 @@ import { KanbanBoard } from '../components/applications/KanbanBoard.jsx';
 const VIEW_KEY = 'jt-app-view';
 const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'table'; } catch { return 'table'; } };
 
-export default function ApplicationsPage({ forceView }) {
+export default function ApplicationsPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const [filters, setFilters] = useUrlFilters();
-  const view = forceView || filters.view || readView();
+  const view = filters.view || readView();
   const page = Number(filters.page) || 1;
   const limit = view === 'kanban' ? 500 : view === 'cards' ? 18 : 20;
 
@@ -35,11 +35,9 @@ export default function ApplicationsPage({ forceView }) {
 
   const setView = (v) => {
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ }
-    // Carry filters across views; drop paging and the view param itself.
+    // Carry filters across views; drop paging.
     const { view: _v, page: _p, ...rest } = filters;
-    if (v === 'kanban') navigate({ pathname: '/kanban', search: new URLSearchParams(rest).toString() });
-    else if (forceView === 'kanban') navigate({ pathname: '/applications', search: new URLSearchParams({ ...rest, view: v }).toString() });
-    else setFilters({ ...rest, view: v });
+    setFilters({ ...rest, view: v });
   };
 
   const exportCsv = () => downloadFile('/applications/export/csv', 'applications.csv', { ...query, page: undefined, limit: undefined })
@@ -52,7 +50,7 @@ export default function ApplicationsPage({ forceView }) {
   return (
     <div>
       <PageHeader
-        title={view === 'kanban' ? 'Kanban board' : 'Applications'}
+        title="Applications"
         description={data ? `${data.total} application${data.total === 1 ? '' : 's'}${hasFilters ? ' match your filters' : ''}` : 'Every job you have saved or applied to'}
         actions={(
           <>

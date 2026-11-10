@@ -12,7 +12,6 @@ const pageLoaders = {
   Applications: () => import('./pages/ApplicationsPage.jsx'),
   ApplicationForm: () => import('./pages/ApplicationFormPage.jsx'),
   ApplicationDetail: () => import('./pages/ApplicationDetailPage.jsx'),
-  Kanban: () => import('./pages/KanbanPage.jsx'),
   Resumes: () => import('./pages/ResumesPage.jsx'),
   EmailAccounts: () => import('./pages/EmailAccountsPage.jsx'),
   Interviews: () => import('./pages/InterviewsPage.jsx'),
@@ -24,7 +23,6 @@ const DashboardPage = lazy(pageLoaders.Dashboard);
 const ApplicationsPage = lazy(pageLoaders.Applications);
 const ApplicationFormPage = lazy(pageLoaders.ApplicationForm);
 const ApplicationDetailPage = lazy(pageLoaders.ApplicationDetail);
-const KanbanPage = lazy(pageLoaders.Kanban);
 const ResumesPage = lazy(pageLoaders.Resumes);
 const EmailAccountsPage = lazy(pageLoaders.EmailAccounts);
 const InterviewsPage = lazy(pageLoaders.Interviews);
@@ -46,6 +44,13 @@ function usePrefetchPages(enabled) {
 const FullScreenLoader = () => (
   <div className="flex h-[60vh] items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted" /></div>
 );
+
+function KanbanRedirect() {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  params.set('view', 'kanban');
+  return <Navigate to={`/applications?${params}`} replace />;
+}
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
@@ -74,7 +79,8 @@ export default function App() {
           <Route path="applications/new" element={<ApplicationFormPage />} />
           <Route path="applications/:id" element={<ApplicationDetailPage />} />
           <Route path="applications/:id/edit" element={<ApplicationFormPage />} />
-          <Route path="kanban" element={<KanbanPage />} />
+          {/* Kanban is a view of the Applications page; keep old /kanban links working. */}
+          <Route path="kanban" element={<KanbanRedirect />} />
           <Route path="resumes" element={<ResumesPage />} />
           <Route path="email-accounts" element={<EmailAccountsPage />} />
           <Route path="interviews" element={<InterviewsPage />} />
