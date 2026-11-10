@@ -9,7 +9,7 @@ import { errorMessage } from '../../../api/client.js';
 import { useToast } from '../../../context/ToastContext.jsx';
 import { emailRule, EMAIL_RX } from './formUtils.js';
 
-function QuickAddEmail({ open, onClose, onCreated }) {
+export function QuickAddEmail({ open, onClose, onCreated }) {
   const [email, setEmail] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
