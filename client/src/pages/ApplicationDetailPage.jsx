@@ -59,7 +59,7 @@ export default function ApplicationDetailPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const { refreshReminders } = useOutletContext() || {};
-  const { data: app, loading, error, reload, setData } = useAsync(() => applicationsApi.get(id).then((r) => r.application), [id]);
+  const { data: app, loading, error, reload, setData } = useAsync(() => applicationsApi.get(id).then((r) => r.application), [id], { cacheKey: `app:${id}` });
   const [ivModal, setIvModal] = useState(null); // {interview?}
   const [remModal, setRemModal] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -125,7 +125,7 @@ export default function ApplicationDetailPage() {
               {app.company.website && <ExtLink href={app.company.website}><Globe className="h-3.5 w-3.5" />Website</ExtLink>}
             </div>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex flex-wrap gap-2 sm:shrink-0">
             {posting && <Button variant="secondary" icon={ExternalLink} onClick={() => window.open(posting, '_blank', 'noopener,noreferrer')}>Job posting</Button>}
             <Button variant="secondary" icon={Zap} onClick={() => setQuickEdit(true)}>Quick edit</Button>
             <Button icon={Pencil} onClick={() => navigate(`/applications/${app._id}/edit`)}>Edit</Button>
@@ -145,8 +145,8 @@ export default function ApplicationDetailPage() {
         )}
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
+      <div className="grid gap-6 lg:grid-cols-3 lg:items-start">
+        <div className="min-w-0 space-y-6 lg:col-span-2">
           {/* Submission summary: answers "which email / which resume" at a glance */}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="card p-4">
@@ -301,7 +301,7 @@ export default function ApplicationDetailPage() {
         </div>
 
         {/* Sidebar */}
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:scrollbar-thin">
           <Card title="Reminders" padded={false} actions={<Button size="xs" variant="ghost" icon={Plus} onClick={() => setRemModal({})}>Add</Button>}>
             {app.reminders.length ? (
               <ul className="divide-y divide-border">

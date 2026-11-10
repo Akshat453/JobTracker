@@ -52,7 +52,7 @@ export default function EmailAccountsPage() {
   const toast = useToast();
   const { refreshEmails } = useLookups();
   const [archived, setArchived] = useState(false);
-  const { data, loading, error, reload } = useAsync(() => emailAccountsApi.list({ archived: String(archived) }), [archived]);
+  const { data, loading, error, reload } = useAsync(() => emailAccountsApi.list({ archived: String(archived) }), [archived], { cacheKey: `emails:${archived}` });
   const [modal, setModal] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const [busy, setBusy] = useState(false);

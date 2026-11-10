@@ -27,7 +27,8 @@
 }
 
 @layer components {
-  .card { @apply rounded-xl border border-border bg-surface shadow-card; }
+  /* min-w-0: cards inside grids may shrink to the screen; long text truncates and tables scroll inside. */
+  .card { @apply min-w-0 rounded-xl border border-border bg-surface shadow-card; }
   .input {
     @apply block w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-fg
       placeholder:text-muted/70 transition-colors

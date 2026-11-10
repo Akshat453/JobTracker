@@ -12,8 +12,8 @@ function contentSecurityPolicy(apiUrl) {
   const csp = [
     "default-src 'self'",
     "script-src 'self'",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
     "img-src 'self' data: blob: https://www.google.com https://*.gstatic.com",
     `connect-src 'self'${apiOrigin ? ` ${apiOrigin}` : ''}`,
     'frame-src blob:',
@@ -33,7 +33,19 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   return {
     plugins: [react(), contentSecurityPolicy(env.VITE_API_URL || '')],
-    build: { sourcemap: false },
+    build: {
+      sourcemap: false,
+      rollupOptions: {
+        output: {
+          // Libraries change rarely; keeping them in their own files lets browsers reuse the cached
+          // copies after each deploy instead of re-downloading everything.
+          manualChunks: {
+            react: ['react', 'react-dom', 'react-router-dom'],
+            vendor: ['axios', 'react-hook-form'],
+          },
+        },
+      },
+    },
     server: {
       port: 5173,
       proxy: { '/api': { target: 'http://localhost:5001', changeOrigin: true } },

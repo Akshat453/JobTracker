@@ -20,8 +20,8 @@ export default function RemindersPage() {
   const toast = useToast();
   const { refreshReminders } = useOutletContext() || {};
   const [view, setView] = useState('open');
-  const { data, loading, error, reload, setData } = useAsync(() => remindersApi.list({ view }), [view]);
-  const apps = useAsync(() => applicationsApi.list({ limit: 500, sort: 'updated' }).then((r) => r.items), []);
+  const { data, loading, error, reload, setData } = useAsync(() => remindersApi.list({ view }), [view], { cacheKey: `reminders:${view}` });
+  const apps = useAsync(() => applicationsApi.list({ limit: 500, sort: 'updated' }).then((r) => r.items), [], { cacheKey: 'apps:picker' });
   const [modal, setModal] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const items = data?.items || [];

@@ -44,7 +44,7 @@ export default function DashboardPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const { refreshReminders } = useOutletContext() || {};
-  const { data, loading, error, reload, setData } = useAsync(() => analyticsApi.overview(), []);
+  const { data, loading, error, reload, setData } = useAsync(() => analyticsApi.overview(), [], { cacheKey: 'overview' });
 
   const completeReminder = async (r, bucket) => {
     setData((d) => ({ ...d, reminders: { ...d.reminders, [bucket]: d.reminders[bucket].filter((x) => x._id !== r._id) } }));
@@ -142,7 +142,7 @@ export default function DashboardPage() {
         </Card>
 
         <Card title="Recently updated" padded={false} actions={<Link to="/applications?sort=updated" className="link text-xs">View all</Link>}>
-          {loading ? <SkeletonRows className="p-5" /> : (
+          {loading && !data ? <SkeletonRows className="p-5" /> : (
             <ul className="divide-y divide-border">
               {recentApplications.map((a) => (
                 <li key={a._id}>

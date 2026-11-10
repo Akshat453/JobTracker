@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { authApi } from '../api/endpoints.js';
 import { tokenStore, setUnauthorizedHandler } from '../api/client.js';
+import { clearAsyncCache } from '../hooks/useAsync.js';
 
 const AuthContext = createContext(null);
 
@@ -8,6 +9,13 @@ const AuthContext = createContext(null);
 // waiting for /auth/me first (a full extra server round trip on every page load). The session is
 // still verified in the background, and any 401 signs the user out.
 const USER_KEY = 'jt-user';
+
+// Forget everything the previous account loaded in this tab: cached page data, and the off-screen
+// span Recharts keeps around for measuring labels (it still holds the last label text it measured).
+function clearSessionData() {
+  clearAsyncCache();
+  document.getElementById('recharts_measurement_span')?.remove();
+}
 const userCache = {
   get: () => { try { return JSON.parse(localStorage.getItem(USER_KEY) || 'null'); } catch { return null; } },
   set: (u) => { try { if (u) localStorage.setItem(USER_KEY, JSON.stringify(u)); else localStorage.removeItem(USER_KEY); } catch { /* ignore */ } },
@@ -22,6 +30,7 @@ export function AuthProvider({ children }) {
   const setUser = useCallback((u) => { userCache.set(u); setUserState(u); }, []);
 
   const logout = useCallback(() => {
+    clearSessionData();
     tokenStore.clear();
     userCache.set(null);
     setUserState(null);
@@ -39,6 +48,7 @@ export function AuthProvider({ children }) {
   }, [logout, setUser, cached]);
 
   const handleAuth = useCallback(({ token, user: u }) => {
+    clearSessionData(); // a different account may be signing in on this tab
     tokenStore.set(token);
     setUser(u);
     return u;

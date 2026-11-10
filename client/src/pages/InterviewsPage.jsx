@@ -25,8 +25,8 @@ function groupByDay(items) {
 export default function InterviewsPage() {
   const toast = useToast();
   const [when, setWhen] = useState('upcoming');
-  const { data, loading, error, reload } = useAsync(() => interviewsApi.list(when === 'all' ? {} : { when }), [when]);
-  const apps = useAsync(() => applicationsApi.list({ limit: 500, sort: 'updated' }).then((r) => r.items), []);
+  const { data, loading, error, reload } = useAsync(() => interviewsApi.list(when === 'all' ? {} : { when }), [when], { cacheKey: `interviews:${when}` });
+  const apps = useAsync(() => applicationsApi.list({ limit: 500, sort: 'updated' }).then((r) => r.items), [], { cacheKey: 'apps:picker' });
   const [modal, setModal] = useState(null);
   const [toDelete, setToDelete] = useState(null);
   const items = data?.items || [];

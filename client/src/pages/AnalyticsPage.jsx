@@ -74,7 +74,7 @@ export default function AnalyticsPage() {
     if (invalidRange) return null;
     const [apps, resumes, sources] = await Promise.all([analyticsApi.applications(range), analyticsApi.resumes(range), analyticsApi.sources(range)]);
     return { apps, resumes, sources };
-  }, [JSON.stringify(range)]);
+  }, [JSON.stringify(range)], { cacheKey: `analytics:${JSON.stringify(range)}` });
 
   const exportFile = async (kind) => {
     setExporting(kind);

@@ -1,22 +1,47 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
 import { AppLayout } from './components/layout/AppLayout.jsx';
 import { LoginPage, RegisterPage } from './pages/AuthPages.jsx';
 
-const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
-const ApplicationsPage = lazy(() => import('./pages/ApplicationsPage.jsx'));
-const ApplicationFormPage = lazy(() => import('./pages/ApplicationFormPage.jsx'));
-const ApplicationDetailPage = lazy(() => import('./pages/ApplicationDetailPage.jsx'));
-const KanbanPage = lazy(() => import('./pages/KanbanPage.jsx'));
-const ResumesPage = lazy(() => import('./pages/ResumesPage.jsx'));
-const EmailAccountsPage = lazy(() => import('./pages/EmailAccountsPage.jsx'));
-const InterviewsPage = lazy(() => import('./pages/InterviewsPage.jsx'));
-const RemindersPage = lazy(() => import('./pages/RemindersPage.jsx'));
-const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage.jsx'));
-const SettingsPage = lazy(() => import('./pages/SettingsPage.jsx'));
+// Page bundles load on demand; once signed in, the rest are prefetched in the background so
+// opening any page later doesn't wait for its code to download.
+const pageLoaders = {
+  Dashboard: () => import('./pages/DashboardPage.jsx'),
+  Applications: () => import('./pages/ApplicationsPage.jsx'),
+  ApplicationForm: () => import('./pages/ApplicationFormPage.jsx'),
+  ApplicationDetail: () => import('./pages/ApplicationDetailPage.jsx'),
+  Kanban: () => import('./pages/KanbanPage.jsx'),
+  Resumes: () => import('./pages/ResumesPage.jsx'),
+  EmailAccounts: () => import('./pages/EmailAccountsPage.jsx'),
+  Interviews: () => import('./pages/InterviewsPage.jsx'),
+  Reminders: () => import('./pages/RemindersPage.jsx'),
+  Analytics: () => import('./pages/AnalyticsPage.jsx'),
+  Settings: () => import('./pages/SettingsPage.jsx'),
+};
+const DashboardPage = lazy(pageLoaders.Dashboard);
+const ApplicationsPage = lazy(pageLoaders.Applications);
+const ApplicationFormPage = lazy(pageLoaders.ApplicationForm);
+const ApplicationDetailPage = lazy(pageLoaders.ApplicationDetail);
+const KanbanPage = lazy(pageLoaders.Kanban);
+const ResumesPage = lazy(pageLoaders.Resumes);
+const EmailAccountsPage = lazy(pageLoaders.EmailAccounts);
+const InterviewsPage = lazy(pageLoaders.Interviews);
+const RemindersPage = lazy(pageLoaders.Reminders);
+const AnalyticsPage = lazy(pageLoaders.Analytics);
+const SettingsPage = lazy(pageLoaders.Settings);
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage.jsx'));
+
+function usePrefetchPages(enabled) {
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const idle = window.requestIdleCallback || ((cb) => setTimeout(cb, 1500));
+    const cancel = window.cancelIdleCallback || clearTimeout;
+    const handle = idle(() => Object.values(pageLoaders).forEach((load) => load().catch(() => {})));
+    return () => cancel(handle);
+  }, [enabled]);
+}
 
 const FullScreenLoader = () => (
   <div className="flex h-[60vh] items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted" /></div>
@@ -25,6 +50,7 @@ const FullScreenLoader = () => (
 function RequireAuth({ children }) {
   const { user, loading } = useAuth();
   const location = useLocation();
+  usePrefetchPages(Boolean(user));
   if (loading) return <FullScreenLoader />;
   if (!user) return <Navigate to="/login" replace state={{ from: location }} />;
   return children;

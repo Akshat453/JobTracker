@@ -58,7 +58,7 @@ export default function ResumesPage() {
   const [busy, setBusy] = useState(false);
 
   const params = { archived: String(archived), ...(kind !== 'all' ? { kind } : {}) };
-  const { data, loading, error, reload } = useAsync(() => resumesApi.list(params), [kind, archived]);
+  const { data, loading, error, reload } = useAsync(() => resumesApi.list(params), [kind, archived], { cacheKey: `resumes:${kind}:${archived}` });
   const items = data?.items || [];
   const refresh = () => { reload(); refreshDocuments(); };
 

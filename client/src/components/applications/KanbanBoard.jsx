@@ -21,13 +21,14 @@ export function KanbanBoard({ items, actions, hideEmpty }) {
 
   return (
     <div className="-mx-4 overflow-x-auto px-4 pb-4 lg:-mx-8 lg:px-8">
-      <div className="flex min-h-[60vh] gap-3">
+      {/* Phones: each column is as tall as its cards (no empty stretched space). Desktop: even, full-height columns. */}
+      <div className="flex items-start gap-3 lg:min-h-[60vh] lg:items-stretch">
         {columns.map((col) => (
           <div key={col.value}
             onDragOver={(e) => { e.preventDefault(); setOver(col.value); }}
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver(null); }}
             onDrop={() => drop(col.value)}
-            className={cn('flex w-72 shrink-0 flex-col rounded-xl border bg-subtle/50 transition-colors',
+            className={cn('flex min-h-[9rem] w-72 shrink-0 flex-col rounded-xl border bg-subtle/50 transition-colors',
               over === col.value ? 'border-brand-400 bg-brand-50/60 dark:bg-brand-500/10' : 'border-border')}>
             <div className="flex items-center gap-2 px-3 py-2.5">
               <span className={cn('h-2 w-2 rounded-full', DOT[col.color])} />

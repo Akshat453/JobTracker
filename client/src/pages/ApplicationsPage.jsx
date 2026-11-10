@@ -23,7 +23,7 @@ export default function ApplicationsPage({ forceView }) {
   const limit = view === 'kanban' ? 500 : view === 'cards' ? 18 : 20;
 
   const query = { ...Object.fromEntries(FILTER_KEYS.map((k) => [k, filters[k]]).filter(([, v]) => v)), sort: filters.sort || 'newest', page: view === 'kanban' ? 1 : page, limit };
-  const { data, loading, error, reload, setData } = useAsync(() => applicationsApi.list(query), [JSON.stringify(query)]);
+  const { data, loading, error, reload, setData } = useAsync(() => applicationsApi.list(query), [JSON.stringify(query)], { cacheKey: `apps:${JSON.stringify(query)}` });
 
   const actions = useApplicationActions({
     onChange: (kind, { id, status }) => setData((d) => d && ({
