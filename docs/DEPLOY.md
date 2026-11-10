@@ -109,7 +109,7 @@ Send friends the link and the invite code privately.
 | Limit | Value |
 |---|---|
 | Resume upload size | 4 MB (Vercel caps request bodies at 4.5 MB) |
-| Reminder emails | Hourly with the GitHub Action below (otherwise once a day via Vercel Cron). Each digest covers reminders due within the user's chosen lead time (default 24 h). |
+| Reminder emails | Every 5 minutes with the cron-job.org setup below (otherwise only once a day via Vercel Cron). Each digest covers reminders due within the user's chosen lead time (default 24 h). |
 | Atlas storage | 512 MB, enough for years for a few users |
 | Atlas inactivity | Free clusters pause after 60 days with no connections. Any use of the app counts, and if it pauses, click **Resume** in Atlas. No data is lost. |
 | Backups | Atlas M0 has none; see below |
@@ -126,15 +126,17 @@ Send friends the link and the invite code privately.
 
 Each user then turns on **Settings → Email notifications** and clicks **Save preferences** (this also records their time zone for the times shown in emails). **Send test email** should say "Test email sent to …".
 
-**Hourly reminder emails:** Vercel's free cron runs only once a day (02:30 UTC / 8:00 IST). [`.github/workflows/reminders.yml`](../.github/workflows/reminders.yml) runs the job every hour instead:
-1. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**. Add:
-   - `SITE_URL`: your site, e.g. `https://jobtracker-xxxx.vercel.app` (no trailing slash)
-   - `CRON_SECRET`: the same value as in Vercel
-2. **Actions → Reminder emails → Run workflow** to test. The log ends with `{"digestsSent":N}`.
+**Automatic reminder emails (do this, or reminders arrive only once a day):** Vercel's free cron runs only once a day (02:30 UTC / 8:00 IST). Use the free service cron-job.org to run the reminder job every 5 minutes:
+1. Sign up at **cron-job.org**, then **Create cronjob**.
+2. **URL:** `https://YOUR-SITE.vercel.app/api/cron/reminders`. **Schedule:** every 5 minutes.
+3. **Advanced → Headers → Add:** key `Authorization`, value `Bearer ` followed by your `CRON_SECRET` (one space after `Bearer`).
+4. Save, then click **Test run**. The response should be `{"digestsSent":0}` or higher. A `404` means the header or secret is wrong.
+
+The secret only lets cron-job.org start the reminder job. It can't read or change anyone's data. If you ever change `CRON_SECRET` in Vercel, update it here too.
 
 Reminders are only marked as emailed after a real send, so nothing is lost while SMTP isn't set up.
 
-As a backup, the API also checks for due reminders in the background whenever anyone uses the app (at most once every 10 minutes), so GitHub's occasional late or skipped runs don't delay emails while the app is in use.
+As a backup, the API also checks for due reminders in the background whenever anyone uses the app (at most once every 10 minutes), as an extra safety net.
 
 **Backups:** take one now and then:
 ```bash

@@ -6,7 +6,7 @@ import { connectDB } from '../src/config/db.js';
 import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
 import { MongoRateLimitStore } from '../src/utils/mongoRateLimitStore.js';
-import { maybeRunReminderNotifications } from '../src/services/notifier.js';
+import { maybeRunReminderNotifications, runReminderNotifications } from '../src/services/notifier.js';
 
 const app = createApp();
 const api = () => request(app);
@@ -280,18 +280,18 @@ describe('interviews & reminders', () => {
     assert.equal((await authA(api().post('/api/reminders')).send({ title: 'x' })).status, 400);
   });
 
-  test('notifier sends digest once', async () => {
-    await authA(api().post('/api/reminders')).send({ title: 'Prep call', dueDate: new Date(Date.now() + 3600e3).toISOString(), application: appId });
-    const run1 = await authA(api().post('/api/notifications/run'));
-    assert.equal(run1.body.digestsSent, 1);
-    const run2 = await authA(api().post('/api/notifications/run'));
-    assert.equal(run2.body.digestsSent, 0);
-    assert.match(run1.body.message, /Sent your due reminders/);
-    // A reminder beyond the lead time is explained, not silently skipped.
-    await authA(api().post('/api/reminders')).send({ title: 'Far away', dueDate: new Date(Date.now() + 5 * 86400e3).toISOString() });
-    const run3 = await authA(api().post('/api/notifications/run'));
-    assert.equal(run3.body.digestsSent, 0);
-    assert.match(run3.body.message, /Nothing is due in the next 24 h\. ".*" is due .*; it will be emailed from/);
+  test('notifier emails each reminder once, when it enters the lead time', async () => {
+    const me = (await authA(api().get('/api/auth/me'))).body.user;
+    const run = (now) => runReminderNotifications(now, { userId: me._id });
+    await authA(api().put('/api/auth/me')).send({ notificationPrefs: { emailEnabled: true, leadTimeHours: 2 } });
+    // Clear earlier test reminders so only this test's ones count.
+    await mongoose.connection.db.collection('reminders').updateMany({}, { $set: { emailedAt: new Date() } });
+
+    const t0 = Date.now();
+    await authA(api().post('/api/reminders')).send({ title: 'Prep call', dueDate: new Date(t0 + 3 * 3600e3).toISOString(), application: appId });
+    assert.equal(await run(new Date(t0)), 0); // due in 3 h, lead time 2 h: not yet
+    assert.equal(await run(new Date(t0 + 1.5 * 3600e3)), 1); // now due in 1.5 h: emailed
+    assert.equal(await run(new Date(t0 + 1.6 * 3600e3)), 0); // never twice
   });
 });
 

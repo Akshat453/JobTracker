@@ -62,5 +62,4 @@ export const analyticsApi = {
 
 export const notificationsApi = {
   test: () => data(api.post('/notifications/test')),
-  run: () => data(api.post('/notifications/run')),
 };

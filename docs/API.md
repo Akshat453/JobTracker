@@ -156,5 +156,4 @@ All accept `from` / `to` (ISO dates), except `overview`.
 | Method | Path | Notes |
 |---|---|---|
 | POST | `/notifications/test` | Sends a test email (or logs it if SMTP isn't configured) |
-| POST | `/notifications/run` | Runs the reminder digest for the signed-in user now; returns `{ digestsSent }` |
 | GET | `/cron/reminders` | Daily digest for all users, called by Vercel Cron. Requires `Authorization: Bearer <CRON_SECRET>`; otherwise 404. |
