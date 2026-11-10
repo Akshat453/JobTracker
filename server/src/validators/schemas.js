@@ -7,6 +7,8 @@ import {
   optStr, optEmail, optUrl, optDate, optEnum, optNumber, optBool, objectId, optObjectId, stringList,
 } from './common.js';
 
+const isTimeZone = (tz) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; } };
+
 // ---------- Auth ----------
 export const registerSchema = z.object({
   name: z.string().trim().min(2, 'Name is too short').max(100),
@@ -35,6 +37,7 @@ export const profileSchema = z.object({
       followUpReminders: optBool,
       deadlineReminders: optBool,
       leadTimeHours: z.coerce.number().int().min(1).max(168).optional(),
+      timeZone: z.string().max(64).refine(isTimeZone, 'Unknown time zone').optional(),
     })
     .partial()
     .optional(),

@@ -65,6 +65,9 @@ function PasswordForm() {
   );
 }
 
+// So reminder emails show times in the user's own time zone rather than the server's (UTC).
+const browserTimeZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; } catch { return undefined; } };
+
 function NotificationPrefs() {
   const { user, setUser } = useAuth();
   const toast = useToast();
@@ -75,7 +78,7 @@ function NotificationPrefs() {
   const save = async () => {
     if (prefs.notifyEmail && !EMAIL_RX.test(prefs.notifyEmail)) return toast.error('Notification email is invalid');
     setSaving(true);
-    try { const { user: u } = await authApi.updateProfile({ notificationPrefs: prefs }); setUser(u); toast.success('Notification preferences saved'); } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
+    try { const { user: u } = await authApi.updateProfile({ notificationPrefs: { ...prefs, timeZone: browserTimeZone() } }); setUser(u); toast.success('Notification preferences saved'); } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
   };
   const test = async () => {
     setTesting(true);

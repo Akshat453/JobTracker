@@ -14,7 +14,9 @@ const reminderSchema = new mongoose.Schema(
     completedAt: Date,
     // auto = generated from follow-up/deadline/interview dates and kept in sync
     origin: { type: String, enum: ['auto', 'manual'], default: 'manual' },
-    notifiedAt: Date,
+    // When this reminder was last included in a digest that was really emailed. (Replaces an older
+    // `notifiedAt` field, which was also set when SMTP wasn't configured and nothing was sent.)
+    emailedAt: Date,
   },
   { timestamps: true },
 );

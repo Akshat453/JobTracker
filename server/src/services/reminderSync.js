@@ -10,7 +10,7 @@ async function upsertAuto(filter, { title, dueDate, notes }) {
   const dateChanged = +existing.dueDate !== +dueDate;
   existing.title = title;
   existing.dueDate = dueDate;
-  if (dateChanged) { existing.completed = false; existing.completedAt = undefined; existing.notifiedAt = undefined; }
+  if (dateChanged) { existing.completed = false; existing.completedAt = undefined; existing.emailedAt = undefined; }
   return existing.save();
 }
 

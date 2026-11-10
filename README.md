@@ -55,7 +55,7 @@ demo@jobtracker.dev / password123
 
 ```bash
 cd server
-npm test        # 21 integration tests against a throw-away `jobtracker_test` database
+npm test        # 30 integration tests against a throw-away `jobtracker_test` database
 ```
 
 The suite covers registration/login, profile, email accounts, resume upload/download, full application create with interviews, validation errors, duplicate detection, status history, nested updates and interview syncing, combined search/filters/sort/pagination, cross-user isolation, CSV, reminders, the email notifier, analytics, PDF generation, safe (archival) deletion and cascade deletes.

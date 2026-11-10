@@ -59,7 +59,7 @@ export const updateReminder = asyncHandler(async (req, res) => {
   const { completed, ...rest } = req.body;
   if ('application' in rest) await assertAppOwned(req.user._id, rest.application);
   for (const [k, v] of Object.entries(rest)) if (v !== undefined) reminder.set(k, v);
-  if (rest.dueDate) reminder.notifiedAt = undefined;
+  if (rest.dueDate) reminder.emailedAt = undefined;
   if (completed !== undefined && completed !== reminder.completed) {
     reminder.completed = completed;
     reminder.completedAt = completed ? new Date() : undefined;

@@ -36,6 +36,8 @@ export const env = {
     from: process.env.MAIL_FROM || 'Job Tracker <no-reply@jobtracker.local>',
   },
   reminderIntervalMin: Number(process.env.REMINDER_CHECK_INTERVAL_MIN ?? 60),
+  // Time zone for reminder times in emails, for users whose browser time zone isn't known yet.
+  defaultTimeZone: process.env.DEFAULT_TIME_ZONE || 'Asia/Kolkata',
 };
 
 if (!env.jwtSecret) {

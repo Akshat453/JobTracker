@@ -109,7 +109,7 @@ Send friends the link and the invite code privately.
 | Limit | Value |
 |---|---|
 | Resume upload size | 4 MB (Vercel caps request bodies at 4.5 MB) |
-| Reminder emails | Once a day. Each user's digest covers reminders due within their chosen lead time (default 24 h). |
+| Reminder emails | Hourly with the GitHub Action below (otherwise once a day via Vercel Cron). Each digest covers reminders due within the user's chosen lead time (default 24 h). |
 | Atlas storage | 512 MB, enough for years for a few users |
 | Atlas inactivity | Free clusters pause after 60 days with no connections. Any use of the app counts, and if it pauses, click **Resume** in Atlas. No data is lost. |
 | Backups | Atlas M0 has none; see below |
@@ -124,7 +124,15 @@ Send friends the link and the invite code privately.
 - `SMTP_PASS=<Google app password>` (myaccount.google.com → Security → App passwords; needs 2-step verification)
 - `MAIL_FROM=Job Tracker <your gmail>`
 
-Each user then enables notifications in **Settings**.
+Each user then turns on **Settings → Email notifications** and clicks **Save preferences** (this also records their time zone for the times shown in emails). **Send test email** should say "Test email sent to …".
+
+**Hourly reminder emails:** Vercel's free cron runs only once a day (02:30 UTC / 8:00 IST). [`.github/workflows/reminders.yml`](../.github/workflows/reminders.yml) runs the job every hour instead:
+1. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**. Add:
+   - `SITE_URL`: your site, e.g. `https://jobtracker-xxxx.vercel.app` (no trailing slash)
+   - `CRON_SECRET`: the same value as in Vercel
+2. **Actions → Reminder emails → Run workflow** to test. The log ends with `{"digestsSent":N}`.
+
+Reminders are only marked as emailed after a real send, so nothing is lost while SMTP isn't set up.
 
 **Backups:** take one now and then:
 ```bash
@@ -158,3 +166,4 @@ To see API errors, go to **Vercel → your project → Logs**.
 | "File is larger than 4 MB" | Compress the PDF (e.g. export again with "reduce file size"). |
 | "Too many failed login attempts" | Wait 15 minutes. This is brute-force protection. |
 | Preview deployment links show errors | Expected: secrets are only set for Production. |
+| No reminder emails | Check, in order: **Send test email** in Settings says "sent" (not "logged"); notifications are on and saved; the reminder is due within the chosen lead time and not completed; Vercel Logs for `[notifier]` errors. Gmail needs an *app password*, and `MAIL_FROM` should use the same Gmail address. |

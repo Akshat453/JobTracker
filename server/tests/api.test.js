@@ -58,6 +58,14 @@ describe('auth', () => {
     assert.equal(res.body.user.notificationPrefs.emailEnabled, true);
     assert.equal(res.body.user.notificationPrefs.interviewReminders, true);
   });
+
+  test('stores the notification time zone and rejects unknown ones', async () => {
+    const ok = await authA(api().put('/api/auth/me')).send({ notificationPrefs: { timeZone: 'Asia/Kolkata' } });
+    assert.equal(ok.body.user.notificationPrefs.timeZone, 'Asia/Kolkata');
+    assert.equal(ok.body.user.notificationPrefs.emailEnabled, true); // other prefs untouched
+    const bad = await authA(api().put('/api/auth/me')).send({ notificationPrefs: { timeZone: 'Mars/Olympus' } });
+    assert.equal(bad.status, 400);
+  });
 });
 
 let emailId; let resumeId; let appId; let resume2Id;

@@ -9,6 +9,7 @@ const notificationPrefsSchema = new mongoose.Schema(
     followUpReminders: { type: Boolean, default: true },
     deadlineReminders: { type: Boolean, default: true },
     leadTimeHours: { type: Number, default: 24, min: 1, max: 168 },
+    timeZone: { type: String, trim: true, maxlength: 64 }, // IANA name from the browser, for times in emails
   },
   { _id: false },
 );
