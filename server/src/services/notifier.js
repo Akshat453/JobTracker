@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Reminder, User } from '../models/index.js';
 import { env } from '../config/env.js';
 import { sendMail, isMailConfigured } from './mailer.js';
@@ -99,6 +100,29 @@ export async function runAndExplainForUser(user, now = new Date()) {
     return { digestsSent: 0, message: `Nothing is due in the next ${lead} h. "${next.title}" is due ${formatWhen(next.dueDate, timeZone)}; it will be emailed from ${formatWhen(sendFrom, timeZone)}.` };
   }
   return { digestsSent: 0, message: 'No open reminders left to email. Reminders already emailed aren\'t sent again unless their date changes.' };
+}
+
+/**
+ * Runs the digest for everyone, but at most once per `everyMs` across all server instances. Called
+ * in the background on ordinary API traffic, so emails also go out on time when the external hourly
+ * trigger is late or skipped. The claim is one atomic update on a small `jobruns` document, so two
+ * instances never both run it.
+ */
+export async function maybeRunReminderNotifications({ now = new Date(), everyMs = 10 * 60_000 } = {}) {
+  if (!isMailConfigured() && !env.isTest) return false;
+  const runs = mongoose.connection.db.collection('jobruns');
+  try {
+    await runs.updateOne(
+      { _id: 'reminders', $or: [{ lastRunAt: { $lt: new Date(now.getTime() - everyMs) } }, { lastRunAt: { $exists: false } }] },
+      { $set: { lastRunAt: now } },
+      { upsert: true },
+    );
+  } catch (e) {
+    if (e.code === 11000) return false; // another request ran it recently
+    throw e;
+  }
+  await runReminderNotifications(now);
+  return true;
 }
 
 export function startReminderScheduler() {

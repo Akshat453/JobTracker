@@ -6,11 +6,16 @@
  */
 import express from 'express'; // eslint-disable-line no-unused-vars -- Vercel's Express detection looks for this import
 import { createApp } from './app.js';
+import { waitUntil } from '@vercel/functions';
 import { connectDB } from './config/db.js';
+import { maybeRunReminderNotifications } from './services/notifier.js';
 
 async function ensureDatabase(_req, res, next) {
   try {
     await connectDB();
+    // Piggy-back the reminder email check on normal traffic (throttled to once per 10 minutes
+    // overall). waitUntil lets it finish after the response is sent, so no request gets slower.
+    waitUntil(maybeRunReminderNotifications().catch((e) => console.error('[notifier]', e.message)));
     next();
   } catch (err) {
     console.error('[db] connection failed:', err.message);

@@ -6,6 +6,7 @@ import { connectDB } from '../src/config/db.js';
 import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
 import { MongoRateLimitStore } from '../src/utils/mongoRateLimitStore.js';
+import { maybeRunReminderNotifications } from '../src/services/notifier.js';
 
 const app = createApp();
 const api = () => request(app);
@@ -409,6 +410,15 @@ describe('serverless support', () => {
     assert.equal((await store.increment('1.2.3.4')).totalHits, 1, 'window resets after expiry');
     await store.resetKey('1.2.3.4');
     assert.equal((await store.increment('1.2.3.4')).totalHits, 1);
+  });
+
+  test('background reminder check runs at most once per interval', async () => {
+    await mongoose.connection.db.collection('jobruns').deleteMany({});
+    const t0 = new Date();
+    const results = await Promise.all([1, 2, 3].map(() => maybeRunReminderNotifications({ now: t0 })));
+    assert.equal(results.filter(Boolean).length, 1); // concurrent requests: only one runs it
+    assert.equal(await maybeRunReminderNotifications({ now: new Date(t0.getTime() + 5 * 60_000) }), false);
+    assert.equal(await maybeRunReminderNotifications({ now: new Date(t0.getTime() + 11 * 60_000) }), true);
   });
 
   test('cron job requires the secret and is hidden without one', async () => {

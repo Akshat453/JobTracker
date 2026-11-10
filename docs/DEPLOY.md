@@ -134,6 +134,8 @@ Each user then turns on **Settings → Email notifications** and clicks **Save p
 
 Reminders are only marked as emailed after a real send, so nothing is lost while SMTP isn't set up.
 
+As a backup, the API also checks for due reminders in the background whenever anyone uses the app (at most once every 10 minutes), so GitHub's occasional late or skipped runs don't delay emails while the app is in use.
+
 **Backups:** take one now and then:
 ```bash
 brew install mongodb-database-tools
