@@ -62,7 +62,6 @@ export default function ApplicationsPage({ forceView }) {
               { value: 'kanban', label: 'Kanban', icon: KanbanSquare },
             ]} />
             <Button variant="secondary" icon={Download} onClick={exportCsv}>Export CSV</Button>
-            <Button icon={Plus} onClick={() => navigate('/applications/new')}>Add</Button>
           </>
         )}
       />

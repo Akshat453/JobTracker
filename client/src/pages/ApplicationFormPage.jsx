@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { useForm, FormProvider } from 'react-hook-form';
 import {
-  Building2, ClipboardList, Mail, FileText, Users, CalendarClock, Sparkles, ArrowLeft, ChevronLeft, ChevronRight, ListChecks,
+  Building2, ClipboardList, Mail, FileText, Users, CalendarClock, Sparkles, ArrowLeft, ChevronLeft, ChevronRight, Zap, ListChecks,
 } from 'lucide-react';
 import { applicationsApi } from '../api/endpoints.js';
 import { errorMessage } from '../api/client.js';
@@ -141,9 +141,9 @@ export default function ApplicationFormPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {!isEdit && (
-              <Segmented value={mode} onChange={setMode} options={[
-                { value: 'quick', label: 'Quick add' },
-                { value: 'full', label: 'Full form' },
+              <Segmented tone="brand" value={mode} onChange={setMode} options={[
+                { value: 'quick', label: 'Quick add', icon: Zap },
+                { value: 'full', label: 'Full form', icon: ListChecks },
               ]} />
             )}
             <Button variant="secondary" onClick={() => navigate(-1)}>Cancel</Button>

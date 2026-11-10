@@ -56,8 +56,7 @@ export default function DashboardPage() {
   };
 
   const header = (
-    <PageHeader title={`${greeting()}, ${user?.name?.split(' ')[0] || 'there'}`} description="Here's where your job search stands today."
-      actions={<Button icon={Plus} onClick={() => navigate('/applications/new')}>Add application</Button>} />
+    <PageHeader title={`${greeting()}, ${user?.name?.split(' ')[0] || 'there'}`} description="Here's where your job search stands today." />
   );
 
   if (loading && !data) return <>{header}<DashboardSkeleton /></>;

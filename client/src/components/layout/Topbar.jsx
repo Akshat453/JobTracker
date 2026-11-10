@@ -82,7 +82,10 @@ export function Topbar({ onMenu, reminders }) {
         <span className="kbd absolute right-2.5 top-1/2 hidden -translate-y-1/2 sm:inline">/</span>
       </form>
       <div className="ml-auto flex items-center gap-1">
-        <Button size="sm" icon={Plus} onClick={() => navigate('/applications/new')} className="hidden sm:inline-flex">New application</Button>
+        {/* The one "add" button for the whole app; icon-only on phones. */}
+        <Button size="sm" icon={Plus} onClick={() => navigate('/applications/new')} aria-label="New application" title="New application (N)">
+          <span className="hidden sm:inline">New application</span>
+        </Button>
         <Menu
           trigger={<button className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-fg" aria-label="Theme"><ThemeIcon className="h-4 w-4" /></button>}
           width="w-36"

@@ -50,17 +50,29 @@ export function Tabs({ tabs, value, onChange, className }) {
   );
 }
 
-export function Segmented({ options, value, onChange }) {
+/**
+ * Pill toggle. `tone="brand"` makes it stand out (brand-coloured, labels always visible) for
+ * important mode switches; the default is a quiet neutral style.
+ */
+export function Segmented({ options, value, onChange, tone = 'neutral' }) {
+  const brand = tone === 'brand';
   return (
-    <div className="inline-flex rounded-lg border border-border bg-subtle p-0.5">
-      {options.map((o) => (
-        <button key={o.value} type="button" onClick={() => onChange(o.value)} title={o.label}
-          className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition',
-            value === o.value ? 'bg-surface text-fg shadow-sm' : 'text-muted hover:text-fg')}>
-          {o.icon && <o.icon className="h-3.5 w-3.5" />}
-          <span className={o.icon ? 'hidden sm:inline' : ''}>{o.label}</span>
-        </button>
-      ))}
+    <div role="radiogroup" className={cn('inline-flex rounded-lg border p-0.5',
+      brand ? 'border-brand-300 bg-brand-50 dark:border-brand-500/40 dark:bg-brand-500/10' : 'border-border bg-subtle')}>
+      {options.map((o) => {
+        const on = value === o.value;
+        return (
+          <button key={o.value} type="button" role="radio" aria-checked={on} onClick={() => onChange(o.value)} title={o.label}
+            className={cn('flex items-center gap-1.5 rounded-md font-medium transition',
+              brand ? 'px-3 py-1.5 text-sm' : 'px-2.5 py-1 text-xs',
+              on
+                ? (brand ? 'bg-brand-600 text-white shadow-sm' : 'bg-surface text-fg shadow-sm')
+                : (brand ? 'text-brand-700 hover:bg-brand-100 dark:text-brand-300 dark:hover:bg-brand-500/20' : 'text-muted hover:text-fg'))}>
+            {o.icon && <o.icon className={brand ? 'h-4 w-4' : 'h-3.5 w-3.5'} />}
+            <span className={o.icon && !brand ? 'hidden sm:inline' : ''}>{o.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
