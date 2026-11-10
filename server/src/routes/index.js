@@ -12,7 +12,7 @@ import * as emails from '../controllers/emailAccountController.js';
 import * as interviews from '../controllers/interviewController.js';
 import * as reminders from '../controllers/reminderController.js';
 import * as analytics from '../controllers/analyticsController.js';
-import { runReminderNotifications } from '../services/notifier.js';
+import { runReminderNotifications, runAndExplainForUser } from '../services/notifier.js';
 import { sendMail, isMailConfigured } from '../services/mailer.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { MongoRateLimitStore } from '../utils/mongoRateLimitStore.js';
@@ -110,7 +110,7 @@ router.post('/notifications/test', mailLimiter, asyncHandler(async (req, res) =>
 }));
 // Runs the digest for the signed-in user only.
 router.post('/notifications/run', mailLimiter, asyncHandler(async (req, res) => {
-  res.json({ digestsSent: await runReminderNotifications(new Date(), { userId: req.user._id }) });
+  res.json(await runAndExplainForUser(req.user));
 }));
 
 export default router;

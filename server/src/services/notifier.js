@@ -56,9 +56,49 @@ export async function runReminderNotifications(now = new Date(), { userId } = {}
     } catch (e) {
       // One bad address or SMTP hiccup shouldn't stop everyone else's digest; it's retried next run.
       console.error(`[notifier] digest for user ${user._id} failed: ${e.message}`);
+      if (userId) throw e; // a single user's manual run reports the real error
     }
   }
   return sent;
+}
+
+/**
+ * For the "Send due reminders now" button: runs the digest for one user and explains the result,
+ * so a user can see why nothing was sent instead of guessing.
+ */
+export async function runAndExplainForUser(user, now = new Date()) {
+  const prefs = user.notificationPrefs || {};
+  const to = prefs.notifyEmail || user.email;
+  if (!isMailConfigured() && !env.isTest) {
+    return { digestsSent: 0, message: 'Email is not set up on the server (SMTP settings are missing), so nothing can be sent.' };
+  }
+  if (!prefs.emailEnabled) {
+    return { digestsSent: 0, message: 'Turn on "Send reminder emails" and click Save preferences first.' };
+  }
+  let digestsSent;
+  try {
+    digestsSent = await runReminderNotifications(now, { userId: user._id });
+  } catch (e) {
+    return { digestsSent: 0, message: `The mail server refused the email: ${e.message}. Check SMTP_USER / SMTP_PASS (Gmail needs an app password) in Vercel.` };
+  }
+  if (digestsSent) return { digestsSent, message: `Sent your due reminders to ${to}. Check spam if it isn't in your inbox.` };
+
+  const lead = prefs.leadTimeHours || 24;
+  const horizon = new Date(now.getTime() + lead * 3_600_000);
+  const timeZone = prefs.timeZone || env.defaultTimeZone;
+  const open = { user: user._id, completed: false };
+  const [dueUnsent, next] = await Promise.all([
+    Reminder.find({ ...open, emailedAt: null, dueDate: { $lte: horizon } }).select('type').lean(),
+    Reminder.findOne({ ...open, emailedAt: null, dueDate: { $gt: horizon } }).sort({ dueDate: 1 }).select('title dueDate').lean(),
+  ]);
+  if (dueUnsent.length) {
+    return { digestsSent: 0, message: `${dueUnsent.length} due reminder(s) weren't sent because that reminder type is switched off below.` };
+  }
+  if (next) {
+    const sendFrom = new Date(next.dueDate.getTime() - lead * 3_600_000);
+    return { digestsSent: 0, message: `Nothing is due in the next ${lead} h. "${next.title}" is due ${formatWhen(next.dueDate, timeZone)}; it will be emailed from ${formatWhen(sendFrom, timeZone)}.` };
+  }
+  return { digestsSent: 0, message: 'No open reminders left to email. Reminders already emailed aren\'t sent again unless their date changes.' };
 }
 
 export function startReminderScheduler() {

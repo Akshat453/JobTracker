@@ -285,6 +285,12 @@ describe('interviews & reminders', () => {
     assert.equal(run1.body.digestsSent, 1);
     const run2 = await authA(api().post('/api/notifications/run'));
     assert.equal(run2.body.digestsSent, 0);
+    assert.match(run1.body.message, /Sent your due reminders/);
+    // A reminder beyond the lead time is explained, not silently skipped.
+    await authA(api().post('/api/reminders')).send({ title: 'Far away', dueDate: new Date(Date.now() + 5 * 86400e3).toISOString() });
+    const run3 = await authA(api().post('/api/notifications/run'));
+    assert.equal(run3.body.digestsSent, 0);
+    assert.match(run3.body.message, /Nothing is due in the next 24 h\. ".*" is due .*; it will be emailed from/);
   });
 });
 

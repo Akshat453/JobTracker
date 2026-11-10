@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState } from 'react';
 import { useForm, Controller } from 'react-hook-form';
-import { Sun, Moon, Monitor, Send } from 'lucide-react';
+import { Sun, Moon, Monitor, Send, BellRing } from 'lucide-react';
 import { authApi, notificationsApi } from '../api/endpoints.js';
 import { errorMessage, tokenStore } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -74,16 +74,24 @@ function NotificationPrefs() {
   const [prefs, setPrefs] = useState(user?.notificationPrefs || {});
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState(null);
   const set = (k, v) => setPrefs((p) => ({ ...p, [k]: v }));
   const save = async () => {
     if (prefs.notifyEmail && !EMAIL_RX.test(prefs.notifyEmail)) return toast.error('Notification email is invalid');
     setSaving(true);
-    try { const { user: u } = await authApi.updateProfile({ notificationPrefs: { ...prefs, timeZone: browserTimeZone() } }); setUser(u); toast.success('Notification preferences saved'); } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
+    try { const { user: u } = await authApi.updateProfile({ notificationPrefs: { ...prefs, timeZone: browserTimeZone() } }); setUser(u); setPrefs(u.notificationPrefs || {}); setRunResult(null); toast.success('Notification preferences saved'); } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
   };
   const test = async () => {
     setTesting(true);
     try { const r = await notificationsApi.test(); toast.info(r.message); } catch (e) { toast.error(errorMessage(e)); } finally { setTesting(false); }
   };
+  const runNow = async () => {
+    setRunning(true);
+    setRunResult(null);
+    try { const r = await notificationsApi.run(); setRunResult({ ok: r.digestsSent > 0, text: r.message }); } catch (e) { setRunResult({ ok: false, text: errorMessage(e) }); } finally { setRunning(false); }
+  };
+  const dirty = JSON.stringify(prefs) !== JSON.stringify(user?.notificationPrefs || {});
   return (
     <Card title="Email notifications" description="Optional digest emails for reminders that are coming due. Requires SMTP settings on the server.">
       <div className="space-y-4">
@@ -100,10 +108,20 @@ function NotificationPrefs() {
           <Toggle checked={prefs.followUpReminders !== false} onChange={(v) => set('followUpReminders', v)} label="Follow-ups and custom reminders" />
           <Toggle checked={prefs.deadlineReminders !== false} onChange={(v) => set('deadlineReminders', v)} label="Application deadlines" />
         </div>
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
           <Button onClick={save} loading={saving}>Save preferences</Button>
           <Button variant="secondary" icon={Send} onClick={test} loading={testing}>Send test email</Button>
+          <Button variant="secondary" icon={BellRing} onClick={runNow} loading={running} disabled={dirty}
+            title={dirty ? 'Save your preferences first' : 'Email reminders that are due now instead of waiting for the hourly check'}>
+            Send due reminders now
+          </Button>
         </div>
+        <p className="text-xs text-muted">Reminder emails are checked every hour. Each reminder is emailed once, when it comes within your chosen time before it's due.</p>
+        {runResult && (
+          <p role="status" className={cn('rounded-lg border px-3 py-2 text-sm', runResult.ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200')}>
+            {runResult.text}
+          </p>
+        )}
       </div>
     </Card>
   );
