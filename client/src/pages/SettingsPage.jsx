@@ -14,11 +14,14 @@ function ProfileForm() {
   const { user, setUser } = useAuth();
   const toast = useToast();
   const { register, control, handleSubmit, reset, formState: { errors, isSubmitting, isDirty } } = useForm();
+  const toValues = (u) => ({ name: u.name, headline: u.headline || '', location: u.location || '', phone: u.phone || '', linkedinUrl: u.linkedinUrl || '', skills: u.skills || [] });
+  // Load the profile once per account. A background profile refresh must not overwrite what's being typed.
+  const userId = user?._id;
   useLayoutEffect(() => {
-    if (user) reset({ name: user.name, headline: user.headline || '', location: user.location || '', phone: user.phone || '', linkedinUrl: user.linkedinUrl || '', skills: user.skills || [] });
-  }, [user, reset]);
+    if (user) reset(toValues(user));
+  }, [userId, reset]); // eslint-disable-line react-hooks/exhaustive-deps
   const onSubmit = async (v) => {
-    try { const { user: u } = await authApi.updateProfile(v); setUser(u); toast.success('Profile saved'); } catch (e) { toast.error(errorMessage(e)); }
+    try { const { user: u } = await authApi.updateProfile(v); setUser(u); reset(toValues(u)); toast.success('Profile saved'); } catch (e) { toast.error(errorMessage(e)); }
   };
   return (
     <Card title="Profile" description="Your skills are used to suggest matches on new applications.">

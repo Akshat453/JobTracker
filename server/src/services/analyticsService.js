@@ -4,6 +4,7 @@ import {
   STATUSES, STATUS_LABELS, INTERVIEW_STAGES, OFFER_STAGES, ASSESSMENT_STAGES,
 } from '../utils/constants.js';
 import { startOfDay, endOfDay, addDays } from '../utils/helpers.js';
+import { findWithApplication } from '../utils/withApplication.js';
 
 const DAY = 86_400_000;
 const pct = (num, den) => (den ? Math.round((num / den) * 1000) / 10 : 0);
@@ -39,12 +40,14 @@ function buildDateFilter({ from, to } = {}) {
 /** Loads applications + their interviews once and annotates each app with funnel flags. */
 async function loadDataset(userId, range) {
   const user = new mongoose.Types.ObjectId(String(userId));
-  const apps = await Application.find({ user, ...buildDateFilter(range) })
-    .select('company.name jobTitle status source employmentType workMode applicationDate statusHistory resume emailUsed.account emailUsed.address updatedAt priority')
-    .lean();
-  const interviews = await Interview.find({ user, application: { $in: apps.map((a) => a._id) } })
-    .select('application date type status result')
-    .lean();
+  // Both queries run in parallel (one round trip). Interviews for applications outside the date
+  // range are simply never looked up below.
+  const [apps, interviews] = await Promise.all([
+    Application.find({ user, ...buildDateFilter(range) })
+      .select('company.name jobTitle status source employmentType workMode applicationDate statusHistory resume emailUsed.account emailUsed.address updatedAt priority')
+      .lean(),
+    Interview.find({ user }).select('application date type status result').lean(),
+  ]);
 
   const ivByApp = new Map();
   for (const iv of interviews) {
@@ -159,21 +162,20 @@ function monthsInRange(range, apps) {
 // ---------------------------------------------------------------------------
 
 export async function getOverview(userId) {
-  const { apps } = await loadDataset(userId);
   const now = new Date();
   const user = userId;
 
-  const [upcomingInterviews, recentApplications, overdueReminders, upcomingReminders] = await Promise.all([
-    Interview.find({ user, date: { $gte: startOfDay(now) }, status: { $in: ['Scheduled', 'Rescheduled'] } })
-      .sort({ date: 1 }).limit(6)
-      .populate('application', 'company.name jobTitle status')
-      .lean(),
+  // Everything in parallel, with linked applications joined in the same query: one round trip.
+  const [{ apps }, upcomingInterviews, recentApplications, overdueReminders, upcomingReminders] = await Promise.all([
+    loadDataset(userId),
+    findWithApplication(Interview, { user, date: { $gte: startOfDay(now) }, status: { $in: ['Scheduled', 'Rescheduled'] } },
+      { sort: { date: 1 }, limit: 6 }),
     Application.find({ user }).sort({ updatedAt: -1 }).limit(6)
       .select('company.name jobTitle status updatedAt applicationDate priority').lean(),
-    Reminder.find({ user, completed: false, dueDate: { $lt: startOfDay(now) } })
-      .sort({ dueDate: 1 }).limit(10).populate('application', 'company.name jobTitle').lean(),
-    Reminder.find({ user, completed: false, dueDate: { $gte: startOfDay(now), $lte: endOfDay(addDays(now, 7)) } })
-      .sort({ dueDate: 1 }).limit(10).populate('application', 'company.name jobTitle').lean(),
+    findWithApplication(Reminder, { user, completed: false, dueDate: { $lt: startOfDay(now) } },
+      { sort: { dueDate: 1 }, limit: 10, fields: ['company.name', 'jobTitle'] }),
+    findWithApplication(Reminder, { user, completed: false, dueDate: { $gte: startOfDay(now), $lte: endOfDay(addDays(now, 7)) } },
+      { sort: { dueDate: 1 }, limit: 10, fields: ['company.name', 'jobTitle'] }),
   ]);
 
   const byStatus = statusBreakdown(apps);

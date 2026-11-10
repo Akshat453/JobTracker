@@ -14,10 +14,13 @@ export function LookupsProvider({ children }) {
   const refreshEmails = useCallback(() => emailAccountsApi.list({ archived: 'all' }).then((r) => setEmailAccounts(r.items)), []);
   const refreshDocuments = useCallback(() => resumesApi.list({ archived: 'all' }).then((r) => setDocuments(r.items)), []);
 
+  // Keyed on the account id, not the user object: refreshing the profile (e.g. the background session
+  // check) must not refetch these lists.
+  const userId = user?._id;
   useEffect(() => {
-    if (!user) { setEmailAccounts([]); setDocuments([]); setLoaded(false); return; }
+    if (!userId) { setEmailAccounts([]); setDocuments([]); setLoaded(false); return; }
     Promise.all([refreshEmails(), refreshDocuments()]).catch(() => {}).finally(() => setLoaded(true));
-  }, [user, refreshEmails, refreshDocuments]);
+  }, [userId, refreshEmails, refreshDocuments]);
 
   const value = useMemo(() => ({
     emailAccounts,

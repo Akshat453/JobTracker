@@ -2,6 +2,7 @@ import { Application, Reminder } from '../models/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { assertObjectId, startOfDay, endOfDay, addDays } from '../utils/helpers.js';
+import { findWithApplication } from '../utils/withApplication.js';
 
 async function loadOwned(req) {
   assertObjectId(req.params.id);
@@ -32,18 +33,15 @@ export const listReminders = asyncHandler(async (req, res) => {
   if (req.query.type) filter.type = { $in: String(req.query.type).split(',') };
   if (req.query.application) { assertObjectId(req.query.application, 'application'); filter.application = req.query.application; }
 
-  const items = await Reminder.find(filter)
-    .sort({ completed: 1, dueDate: req.query.view === 'completed' ? -1 : 1 })
-    .limit(500)
-    .populate('application', 'company.name jobTitle status')
-    .lean();
-
-  const counts = {
-    overdue: await Reminder.countDocuments({ user: req.user._id, completed: false, dueDate: { $lt: startOfDay(now) } }),
-    today: await Reminder.countDocuments({ user: req.user._id, completed: false, dueDate: { $gte: startOfDay(now), $lte: endOfDay(now) } }),
-    upcoming: await Reminder.countDocuments({ user: req.user._id, completed: false, dueDate: { $gte: startOfDay(now) } }),
-  };
-  res.json({ items, counts });
+  // The list and the three counts are independent: fetch them in parallel (one round trip).
+  const user = req.user._id;
+  const [items, overdue, today, upcoming] = await Promise.all([
+    findWithApplication(Reminder, filter, { sort: { completed: 1, dueDate: req.query.view === 'completed' ? -1 : 1 }, limit: 500 }),
+    Reminder.countDocuments({ user, completed: false, dueDate: { $lt: startOfDay(now) } }),
+    Reminder.countDocuments({ user, completed: false, dueDate: { $gte: startOfDay(now), $lte: endOfDay(now) } }),
+    Reminder.countDocuments({ user, completed: false, dueDate: { $gte: startOfDay(now) } }),
+  ]);
+  res.json({ items, counts: { overdue, today, upcoming } });
 });
 
 export const createReminder = asyncHandler(async (req, res) => {

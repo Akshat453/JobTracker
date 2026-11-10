@@ -19,10 +19,13 @@ async function makeDefault(userId, id) {
 export const listEmailAccounts = asyncHandler(async (req, res) => {
   const filter = { user: req.user._id };
   if (req.query.archived !== 'all') filter.isArchived = req.query.archived === 'true';
-  const accounts = await EmailAccount.find(filter).sort({ isDefault: -1, createdAt: 1 }).lean();
-  const counts = await Application.aggregate([
-    { $match: { user: req.user._id, 'emailUsed.account': { $in: accounts.map((a) => a._id) } } },
-    { $group: { _id: '$emailUsed.account', count: { $sum: 1 } } },
+  // Accounts and per-account usage counts in parallel (one round trip).
+  const [accounts, counts] = await Promise.all([
+    EmailAccount.find(filter).sort({ isDefault: -1, createdAt: 1 }).lean(),
+    Application.aggregate([
+      { $match: { user: req.user._id, 'emailUsed.account': { $ne: null } } },
+      { $group: { _id: '$emailUsed.account', count: { $sum: 1 } } },
+    ]),
   ]);
   const map = new Map(counts.map((c) => [String(c._id), c.count]));
   res.json({ items: accounts.map((a) => ({ ...a, applicationCount: map.get(String(a._id)) || 0 })) });

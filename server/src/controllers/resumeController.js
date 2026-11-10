@@ -15,12 +15,16 @@ async function loadOwned(req) {
 }
 
 /** Usage stats per document: how many applications used it and how many got interviews / offers. */
+/** Usage stats for the user's documents (all of them, or only `ids`). */
 async function usageStats(userId, ids) {
+  const refMatch = ids
+    ? { $or: [{ resume: { $in: ids } }, { documents: { $in: ids } }] }
+    : { $or: [{ resume: { $ne: null } }, { 'documents.0': { $exists: true } }] };
   const rows = await Application.aggregate([
-    { $match: { user: userId, $or: [{ resume: { $in: ids } }, { documents: { $in: ids } }] } },
+    { $match: { user: userId, ...refMatch } },
     { $project: { refs: { $setUnion: [{ $cond: [{ $ifNull: ['$resume', false] }, ['$resume'], []] }, { $ifNull: ['$documents', []] }] }, status: 1, hist: '$statusHistory.status' } },
     { $unwind: '$refs' },
-    { $match: { refs: { $in: ids } } },
+    ...(ids ? [{ $match: { refs: { $in: ids } } }] : []),
     {
       $group: {
         _id: '$refs',
@@ -37,8 +41,8 @@ export const listResumes = asyncHandler(async (req, res) => {
   const filter = { user: req.user._id };
   if (req.query.kind) filter.kind = String(req.query.kind);
   if (req.query.archived !== 'all') filter.isArchived = req.query.archived === 'true';
-  const docs = await Resume.find(filter).sort({ createdAt: -1 });
-  const stats = await usageStats(req.user._id, docs.map((d) => d._id));
+  // Documents and their usage stats in parallel (one round trip).
+  const [docs, stats] = await Promise.all([Resume.find(filter).sort({ createdAt: -1 }), usageStats(req.user._id)]);
   res.json({
     items: docs.map((d) => {
       const s = stats.get(String(d._id)) || { applications: 0, interviews: 0, offers: 0 };

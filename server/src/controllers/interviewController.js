@@ -2,6 +2,7 @@ import { Application, Interview } from '../models/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { assertObjectId, startOfDay } from '../utils/helpers.js';
+import { findWithApplication } from '../utils/withApplication.js';
 import { combineDateTime, changeStatus } from '../services/applicationService.js';
 import { syncInterviewReminder, removeInterviewReminders } from '../services/reminderSync.js';
 
@@ -20,10 +21,7 @@ export const listInterviews = asyncHandler(async (req, res) => {
   if (req.query.status) filter.status = { $in: String(req.query.status).split(',') };
   if (req.query.when === 'upcoming') filter.date = { $gte: startOfDay() };
   if (req.query.when === 'past') filter.date = { $lt: startOfDay() };
-  const items = await Interview.find(filter)
-    .sort({ date: req.query.when === 'past' ? -1 : 1 })
-    .populate('application', 'company.name jobTitle status')
-    .lean();
+  const items = await findWithApplication(Interview, filter, { sort: { date: req.query.when === 'past' ? -1 : 1 } });
   res.json({ items });
 });
 
