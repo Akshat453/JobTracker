@@ -6,7 +6,11 @@ import { env } from './config/env.js';
 import routes from './routes/index.js';
 import { notFound, errorHandler } from './middleware/error.js';
 
-export function createApp() {
+/**
+ * @param {object} [options]
+ * @param {Function[]} [options.beforeRoutes] middleware run before the API routes (e.g. ensure a DB connection)
+ */
+export function createApp({ beforeRoutes = [] } = {}) {
   const app = express();
   app.disable('x-powered-by');
   // Behind Vercel's proxy, so rate limits see the real client IP.
@@ -24,6 +28,7 @@ export function createApp() {
   app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   if (!env.isTest) app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
+  if (beforeRoutes.length) app.use('/api', ...beforeRoutes);
   app.use('/api', routes);
   app.use(notFound);
   app.use(errorHandler);

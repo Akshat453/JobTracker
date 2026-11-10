@@ -1,37 +1,42 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "installCommand": "npm ci --prefix server --omit=dev && npm ci --prefix client --include=dev",
-  "buildCommand": "npm run build --prefix client",
-  "outputDirectory": "client/dist",
-  "regions": ["sin1"],
-  "functions": {
-    "api/index.js": {
-      "maxDuration": 30,
-      "includeFiles": "server/node_modules/pdfkit/js/**"
-    }
-  },
-  "crons": [{ "path": "/api/cron/reminders", "schedule": "30 2 * * *" }],
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api" },
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ],
-  "headers": [
-    {
-      "source": "/(.*)",
+  "services": {
+    "client": {
+      "root": "client",
+      "framework": "vite",
+      "installCommand": "npm ci",
+      "buildCommand": "npm run build",
+      "outputDirectory": "dist",
+      "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
       "headers": [
-        { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
-        { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
-        { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
-        { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" }
+        {
+          "source": "/(.*)",
+          "headers": [
+            { "key": "Content-Security-Policy", "value": "frame-ancestors 'none'" },
+            { "key": "X-Frame-Options", "value": "DENY" },
+            { "key": "X-Content-Type-Options", "value": "nosniff" },
+            { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+            { "key": "Permissions-Policy", "value": "camera=(), microphone=(), geolocation=(), payment=(), usb=()" },
+            { "key": "Strict-Transport-Security", "value": "max-age=63072000; includeSubDomains; preload" },
+            { "key": "Cross-Origin-Opener-Policy", "value": "same-origin" }
+          ]
+        },
+        {
+          "source": "/assets/(.*)",
+          "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+        }
       ]
     },
-    {
-      "source": "/assets/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    "server": {
+      "root": "server",
+      "framework": "express",
+      "entrypoint": "src/vercel.js",
+      "installCommand": "npm ci --omit=dev"
     }
-  ]
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "server" } },
+    { "source": "/(.*)", "destination": { "service": "client" } }
+  ],
+  "crons": [{ "path": "/api/cron/reminders", "schedule": "30 2 * * *" }]
 }

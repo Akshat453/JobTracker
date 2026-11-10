@@ -144,7 +144,7 @@ Snapshots mean an application keeps showing the exact email and resume it was se
 
 Free hosting on **MongoDB Atlas** (database and files) + **Vercel** (website and API on one domain). Step-by-step guide: **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
-- [vercel.json](vercel.json) builds `client/` into static files and runs the Express API as one serverless function, [api/index.js](api/index.js).
+- [vercel.json](vercel.json) uses Vercel **services**: `client` (Vite, public at `/`) and `server` (Express, public at `/api`) deploy as one project on one domain. The server's entry point is [server/src/vercel.js](server/src/vercel.js).
 - Locally, `server/src/index.js` runs the same Express app as a normal server.
 - On Vercel: uploads are capped at 4 MB, reminder digests run once a day via Vercel Cron, and login/sign-up rate limits are stored in MongoDB so they hold across function instances.
 

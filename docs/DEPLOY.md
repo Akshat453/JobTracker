@@ -7,7 +7,11 @@ Two free services, one website address:
 | **MongoDB Atlas** (M0, free, 512 MB) | All data, including uploaded resumes |
 | **Vercel** (Hobby, free) | The website *and* the API, on one domain (e.g. `https://jobtracker-you.vercel.app`) |
 
-The API runs as a serverless function ([`api/index.js`](../api/index.js)). It never "sleeps" for long and has no monthly hour limit; after a quiet period the first click takes about 1–2 seconds. Everything is configured in [`vercel.json`](../vercel.json).
+[`vercel.json`](../vercel.json) defines two Vercel **services** in one project:
+- **`client`** (Vite) serves the website at `/`.
+- **`server`** (Express, entry [`server/src/vercel.js`](../server/src/vercel.js)) serves the API at `/api`.
+
+The API runs as serverless functions: no long sleeps and no monthly hour limit. After a quiet period, the first click takes about 1–2 seconds.
 
 > **Never paste secrets into chat, issues, commits or screenshots.** The Atlas password, connection string, `JWT_SECRET`, `CRON_SECRET` and invite code belong only in Atlas and Vercel.
 
@@ -37,7 +41,7 @@ The API runs as a serverless function ([`api/index.js`](../api/index.js)). It ne
    If git asks who you are, run `git config --global user.name "Your Name"` and `git config --global user.email "you@example.com"`, then commit again.
 
 ## 3. Create the database (MongoDB Atlas)
-1. **Cluster:** click **Create**, then **M0 Free**. Provider **AWS**, region **Singapore (ap-southeast-1)**. Click **Create Deployment**.
+1. **Cluster:** click **Create**, then **M0 Free**. Provider **AWS**, region **Singapore (ap-southeast-1)**. Click **Create Deployment**. You'll set Vercel's function region to match in step 5.
 2. **Database user:** in the popup, set the username to `jobtracker-app`, click **Autogenerate Secure Password**, **copy the password** to your notes, then click **Create Database User**.
 3. **Least privilege:** go to **Security → Database Access**, then **Edit** on `jobtracker-app`. Choose **Specific Privileges**, set `readWrite` on database `jobtracker`, and click **Update User**.
 4. **Network access:** go to **Security → Network Access → Add IP Address → Allow access from anywhere** (`0.0.0.0/0`), then **Confirm**. Vercel has no fixed IP addresses; the strong password and TLS still protect the database.
@@ -63,7 +67,9 @@ Also make up an **invite code** for your friends, e.g. `maple-orbit-tunnel-42`.
 
 ## 5. Deploy on Vercel
 1. In Vercel, click **Add New… → Project**, then **Import** next to `jobtracker`.
-2. **Leave Root Directory as `./`**, the repo root, not `client`. Framework Preset: **Other**. Leave the build settings alone; they come from `vercel.json`.
+2. Vercel detects two services, `client` (Vite, `/`) and `server` (Express, `/api`), and reads them from `vercel.json`.
+   - Import it as the **multi-service project**.
+   - **Don't** click "Import single project" on either one; that would deploy only the website or only the API.
 3. Open **Environment Variables** and add these four:
 
    | Name | Value |
@@ -76,7 +82,7 @@ Also make up an **invite code** for your friends, e.g. `maple-orbit-tunnel-42`.
 4. Click **Deploy** and wait about 2 minutes.
 5. After it finishes:
    - **Environment scope:** go to **Settings → Environment Variables** and make sure each variable is ticked for **Production** only. Preview deployments then can't touch your real database.
-   - **Function region:** go to **Settings → Functions → Function Region** and check that it's **Singapore (sin1)**. `vercel.json` requests it; it must match your Atlas region for speed.
+   - **Function region:** go to **Settings → Functions → Function Region**, choose **Singapore (sin1)** to match Atlas, and save. Then **Deployments → ⋯ → Redeploy**. If the API runs far from the database, every click is noticeably slower.
 
 You don't need to set `CLIENT_URL` or `VITE_API_URL`. The site and API share one domain, and the API detects your production URL automatically.
 
@@ -148,7 +154,7 @@ To see API errors, go to **Vercel → your project → Logs**.
 |---|---|
 | Logs: **"Unsafe production configuration"** | It lists the missing or weak variable. Fix it in Settings → Environment Variables, then redeploy. |
 | Logs or app: **"Database unavailable"** | Check `MONGODB_URI` (password, `/jobtracker` part) and Atlas Network Access `0.0.0.0/0`. Check that the cluster isn't paused. |
-| 404 on refresh, or the API returns HTML | Root Directory must be `./` (repo root), so `vercel.json` is used. |
+| 404 on refresh, or the API returns HTML | The project must be imported as the multi-service project from the repo root, so `vercel.json` is used. |
 | "File is larger than 4 MB" | Compress the PDF (e.g. export again with "reduce file size"). |
 | "Too many failed login attempts" | Wait 15 minutes. This is brute-force protection. |
 | Preview deployment links show errors | Expected: secrets are only set for Production. |

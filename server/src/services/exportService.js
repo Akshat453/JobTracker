@@ -1,4 +1,9 @@
 import PDFDocument from 'pdfkit';
+// pdfkit loads its built-in fonts lazily through an internal "#standard-fonts/*" mapping that Vercel's
+// bundler can't follow, so the font files would be missing from the deployed function. Importing the
+// two fonts used here by path makes the bundler include them; pdfkit then reuses these same modules.
+import '../../node_modules/pdfkit/js/standard-fonts/Helvetica.cjs';
+import '../../node_modules/pdfkit/js/standard-fonts/HelveticaBold.cjs';
 import { STATUS_LABELS } from '../utils/constants.js';
 
 const fmtDate = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
