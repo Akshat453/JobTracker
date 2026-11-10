@@ -1,0 +1,9 @@
+{
+  "name": "jobtracker",
+  "private": true,
+  "type": "module",
+  "description": "Deployment root: Vercel serves client/dist and runs api/index.js (the Express API in server/).",
+  "engines": {
+    "node": "24.x"
+  }
+}

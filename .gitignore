@@ -1,0 +1,12 @@
+node_modules
+dist
+.DS_Store
+*.log
+
+# Secrets: never commit real environment files
+.env
+.env.*
+!.env.example
+
+# Legacy local uploads folder (files now live in MongoDB)
+server/uploads

@@ -1,0 +1,7 @@
+# Keep uploads to Vercel lean; dependencies are installed fresh during the build.
+**/node_modules
+client/dist
+server/tests
+**/.env
+**/.env.*
+!**/.env.example
