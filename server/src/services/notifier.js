@@ -42,15 +42,31 @@ export async function runReminderNotifications(now = new Date(), { userId } = {}
       const relevant = due.filter((r) => prefs[TYPE_PREF[r.type]] !== false);
       if (!relevant.length) continue;
 
-      const lines = relevant.map((r) => `${r.title} — ${formatWhen(r.dueDate, timeZone)}${r.dueDate < now ? ' (overdue)' : ''}`);
+      const items = relevant.map((r) => ({
+        title: r.title,
+        when: formatWhen(r.dueDate, timeZone),
+        overdue: r.dueDate < now,
+        notes: r.notes,
+        job: r.application?.company?.name ? `${r.application.company.name}${r.application.jobTitle ? ` · ${r.application.jobTitle}` : ''}` : '',
+      }));
       const link = `${env.clientUrl}/reminders`;
+      // A specific, calm subject ("Reminder: Prep call, Nov 12, 4:30 PM") reads like a personal
+      // note; generic urgency ("N reminders need your attention") is a common spam pattern.
+      const first = items[0];
+      const subject = items.length === 1
+        ? `Reminder: ${first.title}, ${first.when}`
+        : `Reminders: ${first.title} and ${items.length - 1} more`;
+      const textItems = items.map((i) => `- ${i.title}\n  ${i.overdue ? 'Was due' : 'Due'} ${i.when}${i.job ? `\n  ${i.job}` : ''}${i.notes ? `\n  ${i.notes}` : ''}`);
+      const htmlItems = items.map((i) => `<li style="margin:0 0 12px"><strong>${escapeHtml(i.title)}</strong><br>${i.overdue ? 'Was due' : 'Due'} ${escapeHtml(i.when)}${i.job ? `<br><span style="color:#555">${escapeHtml(i.job)}</span>` : ''}${i.notes ? `<br><span style="color:#555">${escapeHtml(i.notes)}</span>` : ''}</li>`);
+      const footer = 'You get this because reminder emails are turned on in your Job Tracker settings. You can turn them off there.';
       await sendMail({
         to: prefs.notifyEmail || user.email,
-        subject: `Job Tracker: ${relevant.length} reminder${relevant.length > 1 ? 's' : ''} need your attention`,
-        text: `Hi ${user.name},\n\nHere is what's coming up:\n\n${lines.map((l) => `• ${l}`).join('\n')}\n\nOpen ${link} to manage them.`,
-        html: `<p>Hi ${escapeHtml(user.name)},</p><p>Here is what's coming up:</p><ul>${lines
-          .map((l) => `<li>${escapeHtml(l)}</li>`)
-          .join('')}</ul><p><a href="${escapeHtml(link)}">Manage reminders</a></p>`,
+        subject,
+        text: `Hi ${user.name},\n\nYour Job Tracker reminders:\n\n${textItems.join('\n\n')}\n\nSee all reminders: ${link}\n\n${footer}\n`,
+        html: `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.5;color:#222">`
+          + `<p>Hi ${escapeHtml(user.name)},</p><p>Your Job Tracker reminders:</p><ul style="padding-left:20px">${htmlItems.join('')}</ul>`
+          + `<p>See all reminders: <a href="${escapeHtml(link)}">${escapeHtml(link)}</a></p>`
+          + `<p style="color:#777;font-size:12px">${escapeHtml(footer)}</p></body></html>`,
       });
       await Reminder.updateMany({ _id: { $in: relevant.map((r) => r._id) } }, { emailedAt: now });
       sent += 1;

@@ -7,6 +7,7 @@ import { createApp } from '../src/app.js';
 import { env } from '../src/config/env.js';
 import { MongoRateLimitStore } from '../src/utils/mongoRateLimitStore.js';
 import { maybeRunReminderNotifications, runReminderNotifications } from '../src/services/notifier.js';
+import { senderHeaders } from '../src/services/mailer.js';
 
 const app = createApp();
 const api = () => request(app);
@@ -410,6 +411,14 @@ describe('serverless support', () => {
     assert.equal((await store.increment('1.2.3.4')).totalHits, 1, 'window resets after expiry');
     await store.resetKey('1.2.3.4');
     assert.equal((await store.increment('1.2.3.4')).totalHits, 1);
+  });
+
+  test('emails are sent from the SMTP account so they are not flagged as spoofed', () => {
+    assert.deepEqual(senderHeaders('Job Tracker <me@gmail.com>', 'me@gmail.com'), { from: 'Job Tracker <me@gmail.com>' });
+    assert.deepEqual(senderHeaders('Job Tracker <ME@gmail.com>', 'me@gmail.com'), { from: 'Job Tracker <ME@gmail.com>' });
+    assert.deepEqual(senderHeaders('Job Tracker <other@site.com>', 'me@gmail.com'), { from: { name: 'Job Tracker', address: 'me@gmail.com' }, replyTo: 'other@site.com' });
+    assert.deepEqual(senderHeaders('Job Tracker <no-reply@jobtracker.local>', 'me@gmail.com'), { from: { name: 'Job Tracker', address: 'me@gmail.com' } });
+    assert.deepEqual(senderHeaders('Job Tracker <a@b.com>', ''), { from: 'Job Tracker <a@b.com>' });
   });
 
   test('background reminder check runs at most once per interval', async () => {
