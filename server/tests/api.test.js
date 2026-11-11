@@ -8,6 +8,7 @@ import { env } from '../src/config/env.js';
 import { MongoRateLimitStore } from '../src/utils/mongoRateLimitStore.js';
 import { maybeRunReminderNotifications, runReminderNotifications } from '../src/services/notifier.js';
 import { senderHeaders } from '../src/services/mailer.js';
+import { companyKey, jobKeys, postingKey, sameJob, titleKey } from '../src/utils/jobMatch.js';
 
 const app = createApp();
 const api = () => request(app);
@@ -125,6 +126,91 @@ describe('resumes', () => {
     assert.ok(res.body.equals(PDF), 'file round-trips byte for byte');
     assert.match(res.headers['content-disposition'], /attachment/);
     assert.equal((await authB(api().get(`/api/resumes/${resumeId}/file`))).status, 404);
+  });
+});
+
+describe('resume versions and editable sources', () => {
+  const DOCX = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('word/document.xml')]);
+  const TEX = Buffer.from('\\documentclass{article}\n\\begin{document}Résumé\\end{document}\n');
+  const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const binary = (r) => r.buffer(true).parse((res, cb) => { const c = []; res.on('data', (d) => c.push(d)); res.on('end', () => cb(null, Buffer.concat(c))); });
+  let v1; let v2;
+
+  test('uploads a PDF with its Word source; the stored name never leaks', async () => {
+    const res = await authA(api().post('/api/resumes')).field('name', 'Versioned CV').field('description', 'First draft')
+      .attach('file', PDF, { filename: 'cv.pdf', contentType: 'application/pdf' })
+      .attach('source', DOCX, { filename: 'cv.docx', contentType: DOCX_TYPE });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    v1 = res.body.resume;
+    assert.equal(v1.versionNumber, 1);
+    assert.equal(v1.family, v1._id);
+    assert.equal(v1.source.file.originalName, 'cv.docx');
+    assert.equal(v1.source.file.storedName, undefined);
+    const dl = await binary(authA(api().get(`/api/resumes/${v1._id}/source`)));
+    assert.equal(dl.status, 200);
+    assert.ok(dl.body.equals(DOCX));
+    assert.match(dl.headers['content-disposition'], /^attachment/);
+    assert.equal((await authB(api().get(`/api/resumes/${v1._id}/source`))).status, 404);
+  });
+
+  test('new versions are numbered, inherit name/category, and keep their own notes and source', async () => {
+    const res = await authA(api().post(`/api/resumes/${v1._id}/versions`))
+      .field('description', 'Added Razorpay internship').field('sourceUrl', 'www.overleaf.com/project/abc123')
+      .attach('file', PDF, { filename: 'cv-v2.pdf', contentType: 'application/pdf' })
+      .attach('source', TEX, { filename: 'cv.tex', contentType: 'application/octet-stream' });
+    assert.equal(res.status, 201, JSON.stringify(res.body));
+    v2 = res.body.resume;
+    assert.equal(v2.versionNumber, 2);
+    assert.equal(v2.version, 'v2');
+    assert.equal(v2.name, 'Versioned CV');
+    assert.equal(v2.family, v1._id);
+    assert.equal(v2.source.url, 'https://www.overleaf.com/project/abc123');
+    assert.equal(v2.source.file.mimeType, 'application/x-tex');
+
+    // Asking from any version gives the whole history, newest first.
+    const detail = await authA(api().get(`/api/resumes/${v1._id}`));
+    assert.deepEqual(detail.body.versions.map((v) => [v.versionNumber, v.description]), [[2, 'Added Razorpay internship'], [1, 'First draft']]);
+    assert.equal((await authA(api().get(`/api/resumes/${v2._id}`))).body.versions.length, 2);
+    // Version 3 from version 1 still continues the numbering.
+    const v3 = await authA(api().post(`/api/resumes/${v1._id}/versions`)).attach('file', PDF, { filename: 'cv3.pdf', contentType: 'application/pdf' });
+    assert.equal(v3.body.resume.versionNumber, 3);
+    // Other users can't add versions to it.
+    const other = await authB(api().post(`/api/resumes/${v1._id}/versions`)).attach('file', PDF, { filename: 'x.pdf', contentType: 'application/pdf' });
+    assert.equal(other.status, 404);
+  });
+
+  test('editable source can be attached, replaced and removed; bad files and links are rejected', async () => {
+    const link = await authA(api().put(`/api/resumes/${v1._id}/source`)).field('sourceUrl', 'https://docs.google.com/document/d/xyz');
+    assert.equal(link.status, 200);
+    assert.equal(link.body.resume.source.url, 'https://docs.google.com/document/d/xyz');
+    assert.equal(link.body.resume.source.file.originalName, 'cv.docx', 'adding a link keeps the file');
+
+    const replaced = await authA(api().put(`/api/resumes/${v1._id}/source`)).attach('source', TEX, { filename: 'new.tex', contentType: 'text/x-tex' });
+    assert.equal(replaced.body.resume.source.file.originalName, 'new.tex');
+    const files = mongoose.connection.db.collection('uploads.files');
+    assert.equal(await files.countDocuments({ filename: 'cv.docx' }), 0, 'replaced source file is deleted');
+
+    const badLink = await authA(api().put(`/api/resumes/${v1._id}/source`)).field('sourceUrl', 'javascript:alert(1)');
+    assert.equal(badLink.status, 400);
+    const fakeTex = await authA(api().put(`/api/resumes/${v1._id}/source`)).attach('source', Buffer.from([0x4d, 0x5a, 0x00, 0x01]), { filename: 'cv.tex', contentType: 'text/plain' });
+    assert.equal(fakeTex.status, 400);
+    const exe = await authA(api().put(`/api/resumes/${v1._id}/source`)).attach('source', DOCX, { filename: 'cv.exe', contentType: 'application/octet-stream' });
+    assert.equal(exe.status, 400);
+    const pdfAsSource = await authA(api().put(`/api/resumes/${v1._id}/source`)).attach('source', PDF, { filename: 'cv.pdf', contentType: 'application/pdf' });
+    assert.equal(pdfAsSource.status, 400);
+    assert.equal((await authB(api().put(`/api/resumes/${v1._id}/source`)).field('sourceUrl', 'https://x.com/a')).status, 404);
+
+    const removed = await authA(api().delete(`/api/resumes/${v1._id}/source`));
+    assert.equal(removed.body.resume.source, undefined);
+    assert.equal(await files.countDocuments({ filename: 'new.tex' }), 0, 'removed source file is deleted');
+    assert.equal((await authA(api().get(`/api/resumes/${v1._id}/source`))).status, 404);
+  });
+
+  test('deleting an unused version deletes its source file too', async () => {
+    const files = mongoose.connection.db.collection('uploads.files');
+    assert.equal(await files.countDocuments({ filename: 'cv.tex' }), 1);
+    assert.equal((await authA(api().delete(`/api/resumes/${v2._id}`))).body.deleted, true);
+    assert.equal(await files.countDocuments({ filename: 'cv.tex' }), 0);
   });
 });
 
@@ -390,6 +476,75 @@ describe('sharing jobs', () => {
 
     await mongoose.connection.db.collection('sharedjobs').updateMany({}, { $set: { expiresAt: new Date(Date.now() - 1000) } });
     assert.equal((await authB(api().get(`/api/shares/${token}`))).status, 404);
+  });
+});
+
+describe('same-job detection', () => {
+  const same = (a, b) => sameJob(jobKeys(a), jobKeys(b));
+  const job = (name, title, url, jobId) => ({ company: { name }, jobTitle: title, jobPostingUrl: url, jobId });
+
+  test('posting links are cleaned up before comparing', () => {
+    const k = postingKey('https://www.acme.com/careers/jobs/42/');
+    assert.equal(postingKey('http://acme.com/careers/jobs/42'), k);
+    assert.equal(postingKey('https://acme.com/careers/jobs/42?utm_source=x&ref=feed&gh_src=abc#apply'), k);
+    assert.notEqual(postingKey('https://acme.com/careers/jobs/43'), k);
+    // Parameters that identify the job are kept, in any order.
+    assert.equal(postingKey('https://boards.greenhouse.io/acme?gh_jid=7&x=1'), postingKey('https://boards.greenhouse.io/acme?x=1&gh_jid=7&utm_medium=s'));
+    assert.notEqual(postingKey('https://boards.greenhouse.io/acme?gh_jid=7'), postingKey('https://boards.greenhouse.io/acme?gh_jid=8'));
+    // LinkedIn's different URL shapes for one job.
+    assert.equal(postingKey('https://www.linkedin.com/jobs/view/3901234567/?trk=abc'), 'linkedin:3901234567');
+    assert.equal(postingKey('https://in.linkedin.com/jobs/view/sde-1-at-zomato-3901234567'), 'linkedin:3901234567');
+    assert.equal(postingKey('https://www.linkedin.com/jobs/collections/recommended/?currentJobId=3901234567'), 'linkedin:3901234567');
+    for (const bad of [null, '', 'not a url', 'javascript:alert(1)', 'ftp://acme.com/x']) assert.equal(postingKey(bad), null);
+  });
+
+  test('titles and company names ignore case, spacing, punctuation and legal suffixes', () => {
+    assert.equal(titleKey('SDE-1'), titleKey('sde 1'));
+    assert.equal(titleKey('SDE 1'), titleKey('SDE1'));
+    assert.notEqual(titleKey('SDE 1'), titleKey('SDE 2'));
+    assert.equal(companyKey('Zomato Pvt. Ltd.'), companyKey('zomato'));
+    assert.equal(companyKey('Procter & Gamble'), companyKey('Procter and Gamble'));
+    assert.equal(companyKey('Co'), 'co');
+  });
+
+  test('rules apply in order: link, then job ID, then company + title', () => {
+    // 1. Same link wins over different wording.
+    assert.ok(same(job('Zomato', 'SDE 1', 'https://zomato.com/jobs/1'), job('Zomato Ltd', 'Software Engineer I', 'https://www.zomato.com/jobs/1?utm_source=li')));
+    // 3. Different links are different jobs, even with the same title (Bangalore vs Pune).
+    assert.ok(!same(job('Acme', 'Backend Engineer', 'https://acme.com/jobs/blr'), job('Acme', 'Backend Engineer', 'https://acme.com/jobs/pune')));
+    // Job IDs decide when links can't.
+    assert.ok(!same(job('Acme', 'Backend Engineer', null, 'BLR-1'), job('Acme', 'Backend Engineer', null, 'PUN-2')));
+    assert.ok(same(job('Acme', 'Backend Engineer', null, 'blr-1'), job('acme', 'Backend Eng', null, 'BLR-1')));
+    // 2. Otherwise company + title, normalised; a link on only one side doesn't block a match.
+    assert.ok(same(job('Zomato', 'SDE-1'), job('zomato pvt ltd', 'sde 1', 'https://zomato.com/jobs/1')));
+    assert.ok(!same(job('Zomato', 'SDE 1'), job('Swiggy', 'SDE 1')));
+    assert.ok(!same(job('Zomato', 'SDE 1'), job('Zomato', 'SDE 2')));
+  });
+
+  test('API: same title with a different link is not a duplicate; "Add anyway" bypasses a match', async () => {
+    const create = (body, q = '') => authB(api().post(`/api/applications${q}`)).send({ status: 'saved', ...body });
+    const blr = await create({ company: { name: 'Matchco' }, jobTitle: 'Backend Engineer', jobPostingUrl: 'https://matchco.com/jobs/blr' });
+    assert.equal(blr.status, 201);
+    const pune = await create({ company: { name: 'Matchco' }, jobTitle: 'Backend Engineer', jobPostingUrl: 'https://matchco.com/jobs/pune' });
+    assert.equal(pune.status, 201);
+    const dupLink = await create({ company: { name: 'Matchco Pvt Ltd' }, jobTitle: 'Senior Backend', jobPostingUrl: 'https://www.matchco.com/jobs/blr/?utm_source=x' });
+    assert.equal(dupLink.status, 409);
+    assert.equal(dupLink.body.error.details.duplicateId, blr.body.application._id);
+    const dupTitle = await create({ company: { name: 'MATCHCO' }, jobTitle: 'backend-engineer' });
+    assert.equal(dupTitle.status, 409);
+
+    // A friend shares the Pune job with a reworded title: the link still finds it.
+    const owner = (await authA(api().post('/api/applications')).send({
+      company: { name: 'Matchco' }, jobTitle: 'Backend Eng (Pune)', jobPostingUrl: 'https://matchco.com/jobs/pune?ref=share', status: 'saved',
+    })).body.application;
+    const token = (await authA(api().post(`/api/applications/${owner._id}/share`))).body.url.split('/share/')[1];
+    const view = await authB(api().get(`/api/shares/${token}`));
+    assert.equal(String(view.body.existingApplication), pune.body.application._id);
+    assert.equal((await authB(api().post(`/api/shares/${token}/accept`))).status, 409);
+    // "Add anyway" adds it as a separate job.
+    const forced = await authB(api().post(`/api/shares/${token}/accept?force=true`));
+    assert.equal(forced.status, 201);
+    assert.notEqual(forced.body.application._id, pune.body.application._id);
   });
 });
 

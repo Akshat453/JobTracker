@@ -4,7 +4,7 @@ import { SHARE_TTL_DAYS } from '../models/SharedJob.js';
 import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { assertObjectId } from '../utils/helpers.js';
-import { createApplication, findDuplicate } from '../services/applicationService.js';
+import { createApplication, duplicateFinder, findDuplicate } from '../services/applicationService.js';
 import { applicationCreateSchema } from '../validators/schemas.js';
 import { env } from '../config/env.js';
 
@@ -61,7 +61,9 @@ async function loadInboxItem(id, user) {
   return share;
 }
 
-const findExisting = (userId, job) => findDuplicate(userId, { company: { name: job.companyName }, jobTitle: job.jobTitle });
+const asApplication = (job) => ({ company: { name: job.companyName }, jobTitle: job.jobTitle, jobPostingUrl: job.jobPostingUrl });
+const findExisting = (userId, job) => findDuplicate(userId, asApplication(job));
+const wantsForce = (req) => req.query.force === 'true';
 
 async function recordResponse(share, userId, response) {
   await SharedJob.updateOne({ _id: share._id }, { $pull: { responses: { user: userId } } });
@@ -70,9 +72,9 @@ async function recordResponse(share, userId, response) {
 
 /**
  * Adds a shared job to `user`'s applications as Saved / Interested. Returns { application, alreadyAdded }.
- * Throws 409 (with duplicateId) if they already track the same job.
+ * Throws 409 (with duplicateId) if they already track the same job, unless `force` ("Add anyway").
  */
-async function acceptFor(share, user) {
+async function acceptFor(share, user, { force = false } = {}) {
   if (share.owner.equals(user._id)) throw ApiError.badRequest('This is your own shared job');
   const previous = share.responses.find((r) => r.user.equals(user._id));
   if (previous?.action === 'added' && previous.application && await Application.exists({ _id: previous.application, user: user._id })) {
@@ -91,7 +93,7 @@ async function acceptFor(share, user) {
     notes: `Shared with you by ${from} on Job Tracker.${share.message ? `\n\n"${share.message}"` : ''}`,
   });
   if (!parsed.success) throw ApiError.badRequest('This shared job has invalid details');
-  const app = await createApplication(user._id, parsed.data);
+  const app = await createApplication(user._id, parsed.data, { force });
   await recordResponse(share, user._id, { action: 'added', application: app._id });
   return { application: { _id: app._id }, alreadyAdded: false };
 }
@@ -138,7 +140,7 @@ export const getShare = asyncHandler(async (req, res) => {
 });
 
 export const acceptShare = asyncHandler(async (req, res) => {
-  const result = await acceptFor(await loadByToken(req.params.token, req.user), req.user);
+  const result = await acceptFor(await loadByToken(req.params.token, req.user), req.user, { force: wantsForce(req) });
   res.status(result.alreadyAdded ? 200 : 201).json(result);
 });
 
@@ -153,10 +155,11 @@ export const declineShare = asyncHandler(async (req, res) => {
 export const inbox = asyncHandler(async (req, res) => {
   const shares = await SharedJob.find({ recipient: req.user._id, ...live() }).sort({ createdAt: -1 }).limit(200);
   const ownerIds = [...new Set(shares.map((s) => String(s.owner)))];
-  const [owners, existing] = await Promise.all([
+  const [owners, findExistingApp] = await Promise.all([
     User.find({ _id: { $in: ownerIds } }).select('name').lean(),
-    Promise.all(shares.map((s) => (myResponse(s, req.user._id) ? null : findExisting(req.user._id, s.job)))),
+    duplicateFinder(req.user._id),
   ]);
+  const existing = shares.map((s) => (myResponse(s, req.user._id) ? null : findExistingApp(asApplication(s.job))));
   const nameOf = new Map(owners.map((o) => [String(o._id), o.name]));
   res.json({
     items: shares.map((s, i) => ({
@@ -173,7 +176,7 @@ export const inbox = asyncHandler(async (req, res) => {
 });
 
 export const acceptInboxItem = asyncHandler(async (req, res) => {
-  const result = await acceptFor(await loadInboxItem(req.params.id, req.user), req.user);
+  const result = await acceptFor(await loadInboxItem(req.params.id, req.user), req.user, { force: wantsForce(req) });
   res.status(result.alreadyAdded ? 200 : 201).json(result);
 });
 

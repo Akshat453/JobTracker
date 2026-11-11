@@ -22,10 +22,10 @@ export default function SharedJobPage() {
   const [busy, setBusy] = useState(null);
   const [duplicateId, setDuplicateId] = useState(null);
 
-  const accept = async () => {
-    setBusy('add');
+  const accept = async ({ force = false } = {}) => {
+    setBusy(force ? 'force' : 'add');
     try {
-      const r = await sharesApi.accept(token);
+      const r = await sharesApi.accept(token, { force });
       toast.success(r.alreadyAdded ? 'Already in your Saved list' : 'Added to your Saved / Interested list');
       navigate(`/applications/${r.application._id}`);
     } catch (e) {
@@ -84,18 +84,22 @@ export default function SharedJobPage() {
           ) : existing ? (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-muted">You already track this job.</p>
-              <Button variant="secondary" onClick={() => navigate(`/applications/${existing}`)}>Open it</Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => navigate(`/applications/${existing}`)}>Open it</Button>
+                <Button variant="ghost" icon={Bookmark} loading={busy === 'force'} disabled={Boolean(busy)} onClick={() => accept({ force: true })}
+                  title="Add it as a separate job if it's actually a different opening">Add anyway</Button>
+              </div>
             </div>
           ) : response?.action === 'declined' ? (
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="inline-flex items-center gap-2 text-sm text-muted"><X className="h-4 w-4" />You declined this job</p>
-              <Button variant="secondary" icon={Bookmark} loading={busy === 'add'} onClick={accept}>Add it anyway</Button>
+              <Button variant="secondary" icon={Bookmark} loading={busy === 'add'} onClick={() => accept()}>Add it anyway</Button>
             </div>
           ) : (
             <>
               <p className="mb-3 text-sm text-muted">Add it to your tracker as <b className="text-fg">Saved / Interested</b>? You can apply and update it later.</p>
               <div className="flex flex-col gap-2 sm:flex-row">
-                <Button icon={Bookmark} loading={busy === 'add'} disabled={Boolean(busy)} onClick={accept} className="sm:flex-1">Add to my Saved</Button>
+                <Button icon={Bookmark} loading={busy === 'add'} disabled={Boolean(busy)} onClick={() => accept()} className="sm:flex-1">Add to my Saved</Button>
                 <Button variant="secondary" icon={X} loading={busy === 'decline'} disabled={Boolean(busy)} onClick={decline} className="sm:flex-1">Decline</Button>
               </div>
             </>

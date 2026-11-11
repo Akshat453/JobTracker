@@ -79,7 +79,11 @@ Body (only `company.name` and `jobTitle` are required):
 }
 ```
 
-If an application with the same company + title (+ job ID, if given) already exists, the API returns `409` with `details.duplicateId`. Repeat the request with `?force=true` to save it anyway.
+If you already track the same job, the API returns `409` with `details.duplicateId`. Repeat the request with `?force=true` to save it anyway. "Same job" is decided in this order (see `server/src/utils/jobMatch.js`):
+
+1. **Posting link**, when both jobs have one, compared after cleanup: no `www.`, `http`/`https` treated alike, trailing `/` and `#…` dropped, tracking parameters (`utm_*`, `ref`, `trk`, `gh_src`, …) removed. LinkedIn links are reduced to the job's numeric ID. Same link means the same job; **different links mean different jobs**, even with the same title.
+2. **Job ID**, when both have one (and the company matches): decides the same way.
+3. Otherwise **company + title**, ignoring case, spaces, punctuation and legal suffixes (`SDE-1` = `SDE 1` = `sde1`; `Zomato Pvt Ltd` = `Zomato`).
 Returns `201 { application }`, fully populated (`resume`, `documents`, `emailUsed.account`, `interviews`, `reminders`).
 
 ### Other application routes
@@ -99,13 +103,19 @@ Statuses: `saved, applied, assessment_pending, assessment_completed, interview_s
 
 ## Resumes & documents
 
+Every version of a resume is its own document, so an application keeps pointing at the exact version it was sent with. Versions share `family` (the first version's id) and are numbered by `versionNumber`. Source files are checked by their contents, not just their extension (`.tex` must be UTF-8 text; `.docx`/`.zip` must be zip archives).
+
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/resumes?kind=resume\|cover_letter\|other&archived=false\|true\|all` | Each item includes `usage { applications, interviews, offers }` |
-| POST | `/resumes` | `multipart/form-data`: `file` (PDF/DOC/DOCX, ≤ 10 MB), `name`, `version`, `category`, `description`, `kind` |
-| GET | `/resumes/:id` | `{ resume, applications[] }` (the applications that used it) |
+| POST | `/resumes` | `multipart/form-data`: `file` (PDF/DOC/DOCX, ≤ 10 MB), `name`, `version`, `category`, `description`, `kind`; optional editable source: `source` (DOCX/DOC/TEX/ZIP) and/or `sourceUrl` (Overleaf, Google Docs…). Both files together must fit the upload limit. |
+| POST | `/resumes/:id/versions` | New version of the resume `:id` belongs to. `multipart/form-data`: `file`, optional `version` (default `v<n>`), `description` (what changed), `source`, `sourceUrl`. Name, type and category come from the latest version. |
+| GET | `/resumes/:id` | `{ resume, applications[], versions[] }`: the applications that used it, and every version of it, newest first, each with `usage` |
+| GET | `/resumes/:id/source` | Downloads the version's editable source file (always as an attachment) |
+| PUT | `/resumes/:id/source` | `multipart/form-data`: `source` file and/or `sourceUrl` (empty clears the link). Replacing the file deletes the old one. |
+| DELETE | `/resumes/:id/source` | Removes the editable source file and link |
 | GET | `/resumes/:id/file[?download=1]` | Streams the file (inline, or as an attachment with `download=1`) |
-| PUT | `/resumes/:id` | Metadata, `isArchived` |
+| PUT | `/resumes/:id` | Metadata (`description` holds a version's notes), `sourceUrl`, `isArchived` |
 | DELETE | `/resumes/:id` | If it's referenced by applications: **archived**, returns `{ archived: true, references }`. Otherwise it is deleted along with the file: `{ deleted: true }` |
 
 ## Email accounts
@@ -166,10 +176,10 @@ Share links carry only four fields (company name, company website, job title, jo
 |---|---|---|
 | POST | `/applications/:id/share` | Creates a link for one of your applications. Returns `{ url, expiresAt }` (30 per hour). |
 | GET | `/shares/:token` | `{ job, sharedBy, isOwner, expiresAt, response, existingApplication }`. 404 if invalid or expired. |
-| POST | `/shares/:token/accept` | Adds the job to your applications with status `saved`. Returns `{ application: { _id } }`; 409 with `duplicateId` if you already track it; 400 for your own link. |
+| POST | `/shares/:token/accept` | Adds the job to your applications with status `saved`. Returns `{ application: { _id } }`; 409 with `duplicateId` if you already track it (add `?force=true` to add it anyway); 400 for your own link. |
 | POST | `/shares/:token/decline` | Records that you declined. |
 | GET | `/shares/inbox` | Jobs friends sent you: `{ items: [{ _id, job, message, sharedBy, sharedAt, response, existingApplication }] }` |
-| POST | `/shares/inbox/:id/accept` · `/decline` | Add or decline one job sent to you |
+| POST | `/shares/inbox/:id/accept` · `/decline` | Add or decline one job sent to you. Accept takes `?force=true` ("Add anyway") like the link version. |
 | POST | `/shares/inbox/accept-all` | Adds every unanswered job; returns `{ added, skipped }` |
 
 ## Friends

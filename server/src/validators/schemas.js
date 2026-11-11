@@ -182,8 +182,17 @@ export const resumeMetaSchema = z.object({
   category: optStr(60),
   description: optStr(1000),
   kind: optEnum(DOCUMENT_KINDS),
+  // Link to the editable source (Overleaf, Google Docs…).
+  sourceUrl: optUrl,
 });
 export const resumeUpdateSchema = resumeMetaSchema.partial().extend({ isArchived: optBool });
+/** A new version: name, type and category come from the resume it's a version of. */
+export const resumeVersionSchema = z.object({
+  version: optStr(40),
+  description: optStr(1000),
+  sourceUrl: optUrl,
+});
+export const resumeSourceSchema = z.object({ sourceUrl: optUrl });
 
 // ---------- Email accounts ----------
 export const emailAccountSchema = z.object({

@@ -140,11 +140,11 @@ function SharedTab({ refreshBadge }) {
   const [busy, setBusy] = useState(null);
 
   const update = (id, patch) => setData((d) => ({ ...d, items: d.items.map((i) => (i._id === id ? { ...i, ...patch } : i)) }));
-  const add = async (item) => {
+  const add = async (item, { force = false } = {}) => {
     setBusy(item._id);
     try {
-      const r = await sharesApi.acceptInbox(item._id);
-      update(item._id, { response: { action: 'added', application: r.application._id } });
+      const r = await sharesApi.acceptInbox(item._id, { force });
+      update(item._id, { response: { action: 'added', application: r.application._id }, existingApplication: null });
       toast.success(`${item.job.jobTitle} added to Saved`);
       refreshBadge?.();
     } catch (e) {
@@ -204,7 +204,11 @@ function SharedTab({ refreshBadge }) {
                 {item.response?.action === 'added' ? (
                   <Button size="sm" variant="secondary" icon={Check} onClick={() => appId && navigate(`/applications/${appId}`)}>Added · Open</Button>
                 ) : item.existingApplication ? (
-                  <Button size="sm" variant="secondary" disabled={!appId} onClick={() => navigate(`/applications/${appId}`)}>Already tracked</Button>
+                  <>
+                    <Button size="sm" variant="secondary" disabled={!appId} onClick={() => navigate(`/applications/${appId}`)}>Already tracked</Button>
+                    <Button size="sm" variant="ghost" icon={Bookmark} loading={busy === item._id} disabled={Boolean(busy)} onClick={() => add(item, { force: true })}
+                      title="Add it as a separate job if it's actually a different opening">Add anyway</Button>
+                  </>
                 ) : item.response?.action === 'declined' ? (
                   <>
                     <span className="self-center text-xs text-muted">Declined</span>

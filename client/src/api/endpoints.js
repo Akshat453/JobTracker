@@ -30,6 +30,9 @@ export const resumesApi = {
   update: (id, body) => data(api.put(`/resumes/${id}`, body)),
   remove: (id) => data(api.delete(`/resumes/${id}`)),
   fileBlob: (id) => api.get(`/resumes/${id}/file`, { responseType: 'blob' }).then((r) => r.data),
+  createVersion: (id, formData, onUploadProgress) => data(api.post(`/resumes/${id}/versions`, formData, { onUploadProgress })),
+  setSource: (id, formData) => data(api.put(`/resumes/${id}/source`, formData)),
+  removeSource: (id) => data(api.delete(`/resumes/${id}/source`)),
 };
 
 export const emailAccountsApi = {
@@ -67,10 +70,10 @@ export const notificationsApi = {
 export const sharesApi = {
   create: (applicationId) => data(api.post(`/applications/${applicationId}/share`)),
   get: (token) => data(api.get(`/shares/${encodeURIComponent(token)}`)),
-  accept: (token) => data(api.post(`/shares/${encodeURIComponent(token)}/accept`)),
+  accept: (token, { force } = {}) => data(api.post(`/shares/${encodeURIComponent(token)}/accept`, null, { params: force ? { force: true } : undefined })),
   decline: (token) => data(api.post(`/shares/${encodeURIComponent(token)}/decline`)),
   inbox: () => data(api.get('/shares/inbox')),
-  acceptInbox: (id) => data(api.post(`/shares/inbox/${id}/accept`)),
+  acceptInbox: (id, { force } = {}) => data(api.post(`/shares/inbox/${id}/accept`, null, { params: force ? { force: true } : undefined })),
   declineInbox: (id) => data(api.post(`/shares/inbox/${id}/decline`)),
   acceptAll: () => data(api.post('/shares/inbox/accept-all')),
 };

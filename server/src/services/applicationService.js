@@ -1,7 +1,7 @@
 import { Application, EmailAccount, Interview, Resume, Reminder } from '../models/index.js';
 import { ApiError } from '../utils/ApiError.js';
 import { STATUS_LABELS, PRIORITY_RANK } from '../utils/constants.js';
-import { escapeRegex } from '../utils/helpers.js';
+import { jobKeys, sameJob } from '../utils/jobMatch.js';
 import { syncApplicationReminders, syncInterviewReminder, removeInterviewReminders } from './reminderSync.js';
 
 const NESTED = ['company', 'salary', 'emailUsed', 'recruiter', 'referral'];
@@ -113,15 +113,25 @@ async function syncInterviews(app, rounds) {
   }
 }
 
-export async function findDuplicate(userId, body, excludeId) {
-  const q = {
-    user: userId,
-    'company.name': new RegExp(`^${escapeRegex(body.company.name)}$`, 'i'),
-    jobTitle: new RegExp(`^${escapeRegex(body.jobTitle)}$`, 'i'),
-  };
-  if (body.jobId) q.jobId = body.jobId;
+/**
+ * Returns a function that finds the user's existing application matching a job, or null.
+ * Loads the user's applications once, so checking many jobs (e.g. a whole inbox) costs one query.
+ * See utils/jobMatch.js for what counts as the same job.
+ */
+export async function duplicateFinder(userId, excludeId) {
+  const q = { user: userId };
   if (excludeId) q._id = { $ne: excludeId };
-  return Application.findOne(q).select('_id company.name jobTitle applicationDate status');
+  const apps = await Application.find(q)
+    .select('_id company.name jobTitle jobPostingUrl jobId applicationDate status').lean();
+  const keyed = apps.map((a) => ({ app: a, keys: jobKeys(a) }));
+  return (job) => {
+    const keys = jobKeys(job);
+    return keyed.find((k) => sameJob(keys, k.keys))?.app || null;
+  };
+}
+
+export async function findDuplicate(userId, body, excludeId) {
+  return (await duplicateFinder(userId, excludeId))(body);
 }
 
 export async function createApplication(userId, body, { force = false } = {}) {
