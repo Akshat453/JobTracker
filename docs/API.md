@@ -170,7 +170,7 @@ All accept `from` / `to` (ISO dates), except `overview`.
 
 ## Shared jobs
 
-Share links carry only four fields (company name, company website, job title, job posting URL) and expire after 30 days. Only a SHA-256 hash of each link token is stored. All endpoints require sign-in.
+Share links carry only four fields (company name, company website, job title, job posting URL) and stop working after 30 days. The share record is kept for a year (TTL on `purgeAt`) so the sharer can see their history. Only a SHA-256 hash of each link token is stored. All endpoints require sign-in.
 
 | Method | Path | Description |
 |---|---|---|
@@ -179,6 +179,8 @@ Share links carry only four fields (company name, company website, job title, jo
 | POST | `/shares/:token/accept` | Adds the job to your applications with status `saved`. Returns `{ application: { _id } }`; 409 with `duplicateId` if you already track it (add `?force=true` to add it anyway); 400 for your own link. |
 | POST | `/shares/:token/decline` | Records that you declined. |
 | GET | `/shares/inbox` | Jobs friends sent you: `{ items: [{ _id, job, message, sharedBy, sharedAt, response, existingApplication }] }` |
+| GET | `/shares/sent` | Everything you shared, newest first: `{ items: [{ _id, type: 'friend'\|'link', job, application, message, sharedAt, expiresAt, active, revoked, recipient?: { _id, name }, response?, counts?: { added, declined } }] }`. Links show counts only, not who opened them. |
+| POST | `/shares/sent/:id/stop` | Stop a share: the link stops working and it leaves the friend's inbox. Jobs already added stay. |
 | POST | `/shares/inbox/:id/accept` · `/decline` | Add or decline one job sent to you. Accept takes `?force=true` ("Add anyway") like the link version. |
 | POST | `/shares/inbox/accept-all` | Adds every unanswered job; returns `{ added, skipped }` |
 

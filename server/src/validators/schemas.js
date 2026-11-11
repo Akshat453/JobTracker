@@ -181,6 +181,7 @@ export const resumeMetaSchema = z.object({
   version: optStr(40),
   category: optStr(60),
   description: optStr(1000),
+  summary: optStr(140),
   kind: optEnum(DOCUMENT_KINDS),
   // Link to the editable source (Overleaf, Google Docs…).
   sourceUrl: optUrl,
@@ -190,6 +191,7 @@ export const resumeUpdateSchema = resumeMetaSchema.partial().extend({ isArchived
 export const resumeVersionSchema = z.object({
   version: optStr(40),
   description: optStr(1000),
+  summary: optStr(140),
   sourceUrl: optUrl,
 });
 export const resumeSourceSchema = z.object({ sourceUrl: optUrl });

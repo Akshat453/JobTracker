@@ -43,6 +43,9 @@
 
 @layer utilities {
   .scrollbar-thin { scrollbar-width: thin; }
+  /* Still scrollable (swipe / trackpad), just without a visible bar. */
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
 }
 
 /* Recharts tooltip in dark mode */

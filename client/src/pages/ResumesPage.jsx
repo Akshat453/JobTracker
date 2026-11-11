@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Upload, FileText, Eye, Download, Trash2, Pencil, Archive, ArchiveRestore, MoreHorizontal, Trophy, MessagesSquare, Send, FileType2, FilePlus2, History, Paperclip } from 'lucide-react';
+import { Upload, FileText, Eye, Download, Trash2, Pencil, Archive, ArchiveRestore, MoreHorizontal, Trophy, MessagesSquare, Send, FileType2, FilePlus2, History, Paperclip, StickyNote } from 'lucide-react';
 import { resumesApi } from '../api/endpoints.js';
 import { downloadFile, errorMessage } from '../api/client.js';
 import { useAsync } from '../hooks/useAsync.js';
@@ -21,7 +21,7 @@ function EditDocModal({ doc, onClose, onSaved }) {
   const toast = useToast();
   const [v, setV] = useState(null);
   const [saving, setSaving] = useState(false);
-  const cur = v || (doc && { name: doc.name, version: doc.version || '', category: doc.category || 'General', description: doc.description || '', kind: doc.kind });
+  const cur = v || (doc && { name: doc.name, version: doc.version || '', summary: doc.summary || '', category: doc.category || 'General', description: doc.description || '', kind: doc.kind });
   const save = async () => {
     if (!cur.name.trim()) return toast.error('Name is required');
     setSaving(true);
@@ -33,6 +33,7 @@ function EditDocModal({ doc, onClose, onSaved }) {
       footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={saving} onClick={save}>Save</Button></>}>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Name" required className="sm:col-span-2"><Input value={cur.name} onChange={(e) => setV({ ...cur, name: e.target.value })} /></Field>
+        <Field label="Short note" className="sm:col-span-2" hint="What this version contains."><Input maxLength={140} value={cur.summary} placeholder="e.g. Backend · Java/Spring · Razorpay internship" onChange={(e) => setV({ ...cur, summary: e.target.value })} /></Field>
         <Field label="Version"><Input value={cur.version} onChange={(e) => setV({ ...cur, version: e.target.value })} /></Field>
         <Field label="Type"><Select options={DOCUMENT_KINDS} value={cur.kind} onChange={(e) => setV({ ...cur, kind: e.target.value })} /></Field>
         <Field label="Category" className="sm:col-span-2"><Select options={RESUME_CATEGORIES} value={cur.category} onChange={(e) => setV({ ...cur, category: e.target.value })} /></Field>
@@ -156,6 +157,15 @@ export default function ResumesPage() {
                       {isBest && <Badge tone="emerald">Best interview rate</Badge>}
                       {d.isArchived && <Badge tone="zinc">Archived</Badge>}
                     </div>
+                    {d.summary ? (
+                      <p className="mt-2 flex items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-sm font-medium text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+                        <StickyNote className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 break-words">{d.summary}</span>
+                      </p>
+                    ) : (
+                      <button type="button" onClick={() => setEditing(d)} className="mt-2 inline-flex items-center gap-1 self-start text-xs text-muted hover:text-fg">
+                        <StickyNote className="h-3.5 w-3.5" />Add a short note
+                      </button>
+                    )}
                     {d.description && <p className="mt-2 line-clamp-2 text-sm text-muted">{many && <span className="font-medium text-fg/80">What changed: </span>}{d.description}</p>}
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <SourceActions doc={d} toast={toast} />

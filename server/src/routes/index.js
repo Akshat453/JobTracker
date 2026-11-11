@@ -78,6 +78,8 @@ router.post('/applications/:id/share', shareLimiter, shares.createShare);
 
 // ---- Shared jobs (link sharing between users; only signed-in users can open a link)
 router.get('/shares/inbox', shares.inbox);
+router.get('/shares/sent', shares.sent);
+router.post('/shares/sent/:id/stop', shares.stopSharing);
 router.post('/shares/inbox/accept-all', shares.acceptAllInbox);
 router.post('/shares/inbox/:id/accept', shares.acceptInboxItem);
 router.post('/shares/inbox/:id/decline', shares.declineInboxItem);

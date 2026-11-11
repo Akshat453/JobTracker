@@ -26,6 +26,8 @@ const resumeSchema = new mongoose.Schema(
     version: { type: String, trim: true, maxlength: 40 },
     category: { type: String, trim: true, default: 'General' },
     description: { type: String, trim: true, maxlength: 1000 },
+    // One line on what this version contains, e.g. "Backend · Java/Spring · Razorpay internship".
+    summary: { type: String, trim: true, maxlength: 140 },
     file: storedFile,
     family: { type: mongoose.Schema.Types.ObjectId, ref: 'Resume' },
     versionNumber: { type: Number, default: 1, min: 1 },

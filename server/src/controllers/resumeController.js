@@ -117,6 +117,7 @@ export const createVersion = asyncHandler(async (req, res) => {
     versionNumber,
     version: body.version || `v${versionNumber}`,
     description: body.description,
+    summary: body.summary,
     sourceUrl: body.sourceUrl,
   });
   res.status(201).json({ resume: withEmptyUsage(doc) });
@@ -196,6 +197,11 @@ export const updateResume = asyncHandler(async (req, res) => {
   const doc = await loadOwned(req);
   const { isArchived, sourceUrl, ...meta } = req.body;
   for (const [k, v] of Object.entries(meta)) if (v !== undefined) doc.set(k, v);
+  // Name, type and category belong to the resume as a whole, so they change on every version.
+  const shared = Object.fromEntries(['name', 'kind', 'category'].filter((k) => meta[k] !== undefined && meta[k] !== null).map((k) => [k, meta[k]]));
+  if (Object.keys(shared).length) {
+    await Resume.updateMany({ ...familyFilter(req.user._id, familyOf(doc)), _id: { $ne: doc._id } }, { $set: shared });
+  }
   if (sourceUrl !== undefined) doc.source = buildSource(doc.source?.file, sourceUrl);
   if (isArchived !== undefined) {
     doc.isArchived = isArchived;

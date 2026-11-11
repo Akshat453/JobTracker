@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Check, Download, Eye, FilePlus2, MessagesSquare, Paperclip, Pencil, Send, Trash2, Trophy } from 'lucide-react';
-import { Modal, Button, Badge, Textarea, SkeletonRows, ErrorState } from '../ui/index.js';
+import { Check, Download, Eye, FilePlus2, MessagesSquare, Paperclip, Pencil, Send, StickyNote, Trash2, Trophy } from 'lucide-react';
+import { Modal, Button, Badge, Input, Textarea, SkeletonRows, ErrorState } from '../ui/index.js';
 import { resumesApi } from '../../api/endpoints.js';
 import { downloadFile, errorMessage } from '../../api/client.js';
 import { useToast } from '../../context/ToastContext.jsx';
@@ -10,31 +10,52 @@ import { SourceActions } from './SourceFields.jsx';
 
 const labelOf = (v) => v.version || `v${v.versionNumber || 1}`;
 
-function Notes({ version, onSaved }) {
+/** One version's name and notes, with an Edit mode for both. */
+function VersionDetails({ version, isLatest, onSaved }) {
   const toast = useToast();
   const [draft, setDraft] = useState(null);
   const [saving, setSaving] = useState(false);
+  const label = labelOf(version);
   const save = async () => {
     setSaving(true);
-    try { await resumesApi.update(version._id, { description: draft.trim() }); setDraft(null); onSaved(); } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
+    try {
+      await resumesApi.update(version._id, { version: draft.version.trim(), summary: draft.summary.trim(), description: draft.notes.trim() });
+      toast.success('Version updated');
+      setDraft(null); onSaved();
+    } catch (e) { toast.error(errorMessage(e)); } finally { setSaving(false); }
   };
-  if (draft !== null) {
+
+  if (draft) {
     return (
-      <div className="mt-2 space-y-2">
-        <Textarea rows={3} value={draft} maxLength={1000} onChange={(e) => setDraft(e.target.value)} aria-label={`Notes for ${labelOf(version)}`} placeholder="What changed in this version?" />
+      <div className="space-y-2">
+        <Input value={draft.version} maxLength={40} onChange={(e) => setDraft({ ...draft, version: e.target.value })}
+          aria-label={`Name of ${label}`} placeholder={`v${version.versionNumber || 1}`} />
+        <Input value={draft.summary} maxLength={140} onChange={(e) => setDraft({ ...draft, summary: e.target.value })}
+          aria-label={`Short note for ${label}`} placeholder="Short note: what this resume contains" />
+        <Textarea rows={3} value={draft.notes} maxLength={1000} onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+          aria-label={`Notes for ${label}`} placeholder="What changed in this version?" />
+        <p className="text-xs text-muted">Leave the name empty to show it as "v{version.versionNumber || 1}".</p>
         <div className="flex gap-2">
-          <Button size="xs" icon={Check} loading={saving} onClick={save}>Save notes</Button>
+          <Button size="xs" icon={Check} loading={saving} onClick={save}>Save</Button>
           <Button size="xs" variant="ghost" onClick={() => setDraft(null)}>Cancel</Button>
         </div>
       </div>
     );
   }
   return (
-    <div className="mt-1.5 flex items-start gap-1.5">
-      <p className={version.description ? 'whitespace-pre-line text-sm' : 'text-sm italic text-muted'}>{version.description || 'No notes'}</p>
-      <button type="button" onClick={() => setDraft(version.description || '')} className="shrink-0 rounded p-0.5 text-muted hover:bg-subtle hover:text-fg"
-        aria-label={`Edit notes for ${labelOf(version)}`}><Pencil className="h-3.5 w-3.5" /></button>
-    </div>
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold">{label}</span>
+        {isLatest && <Badge tone="indigo">Latest</Badge>}
+        {version.isArchived && <Badge tone="zinc">Archived</Badge>}
+        <span className="text-xs text-muted" title={fmtDate(version.createdAt)}>{timeAgo(version.createdAt)}</span>
+        <button type="button" onClick={() => setDraft({ version: version.version || '', summary: version.summary || '', notes: version.description || '' })}
+          className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted hover:bg-subtle hover:text-fg"
+          aria-label={`Edit name and notes of ${label}`} title="Edit name, short note and notes"><Pencil className="h-3.5 w-3.5" />Edit</button>
+      </div>
+      {version.summary && <p className="mt-1.5 inline-flex max-w-full items-start gap-1.5 rounded-md bg-amber-50 px-2 py-1 text-sm font-medium text-amber-900 dark:bg-amber-500/10 dark:text-amber-200"><StickyNote className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="min-w-0 break-words">{version.summary}</span></p>}
+      <p className={version.description ? 'mt-1.5 whitespace-pre-line text-sm text-muted' : 'mt-1.5 text-sm italic text-muted'}>{version.description || (version.summary ? 'No notes on what changed' : 'No notes')}</p>
+    </>
   );
 }
 
@@ -69,13 +90,7 @@ export function ResumeVersionsModal({ doc, onClose, onPreview, onNewVersion, onE
             <li key={v._id} className="relative">
               <span className={`absolute -left-[27px] top-1.5 h-3 w-3 rounded-full border-2 border-surface ${i === 0 ? 'bg-brand-500' : 'bg-border'}`} aria-hidden="true" />
               <div className="rounded-lg border border-border p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold">{labelOf(v)}</span>
-                  {i === 0 && <Badge tone="indigo">Latest</Badge>}
-                  {v.isArchived && <Badge tone="zinc">Archived</Badge>}
-                  <span className="text-xs text-muted" title={fmtDate(v.createdAt)}>{timeAgo(v.createdAt)}</span>
-                </div>
-                <Notes version={v} onSaved={reload} />
+                <VersionDetails version={v} isLatest={i === 0} onSaved={reload} />
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="secondary" icon={Eye} onClick={() => onPreview(v)}>Preview</Button>
                   <Button size="sm" variant="ghost" icon={Download} onClick={() => download(v)} title={`${v.file.originalName} · ${fmtBytes(v.file.size)}`}>Download</Button>

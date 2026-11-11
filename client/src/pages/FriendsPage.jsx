@@ -1,16 +1,16 @@
 import { useState } from 'react';
 import { useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
 import {
-  Bookmark, Check, CheckCheck, Clock, Copy, ExternalLink, Globe, Inbox, RefreshCw, Send, UserMinus, UserPlus, Users, X,
+  Ban, Bookmark, Check, CheckCheck, Clock, Copy, ExternalLink, Globe, Inbox, Link2, RefreshCw, Send, UserMinus, UserPlus, Users, X,
 } from 'lucide-react';
 import { friendsApi, sharesApi } from '../api/endpoints.js';
 import { errorMessage } from '../api/client.js';
 import { useAsync } from '../hooks/useAsync.js';
 import { useToast } from '../context/ToastContext.jsx';
 import {
-  PageHeader, Card, Button, Input, Tabs, CompanyLogo, EmptyState, ErrorState, SkeletonRows, ConfirmDialog,
+  PageHeader, Card, Button, Badge, Input, Segmented, Tabs, CompanyLogo, EmptyState, ErrorState, SkeletonRows, ConfirmDialog,
 } from '../components/ui/index.js';
-import { initials, timeAgo } from '../lib/format.js';
+import { fmtDate, initials, timeAgo } from '../lib/format.js';
 
 const Avatar = ({ name }) => (
   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">{initials(name)}</span>
@@ -230,16 +230,158 @@ function SharedTab({ refreshBadge }) {
   );
 }
 
+const STATUS = {
+  added: { label: 'Added', tone: 'emerald' },
+  declined: { label: 'Declined', tone: 'zinc' },
+  waiting: { label: 'Waiting', tone: 'amber' },
+  stopped: { label: 'Stopped', tone: 'zinc' },
+  expired: { label: 'Expired', tone: 'zinc' },
+};
+const friendStatus = (s) => s.response?.action || (s.revoked ? 'stopped' : !s.active ? 'expired' : 'waiting');
+
+/** Groups shares by the job they came from, newest job first. */
+function groupByJob(items) {
+  const groups = new Map();
+  for (const s of items) {
+    const key = s.application || `${s.job.companyName}|${s.job.jobTitle}`.toLowerCase();
+    if (!groups.has(key)) groups.set(key, { key, job: s.job, application: s.application, shares: [] });
+    groups.get(key).shares.push(s);
+  }
+  return [...groups.values()];
+}
+
+function SentTab() {
+  const toast = useToast();
+  const navigate = useNavigate();
+  const { data, loading, error, reload, setData } = useAsync(() => sharesApi.sent(), [], { cacheKey: 'shares-sent' });
+  const [filter, setFilter] = useState('all');
+  const [stopping, setStopping] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+
+  const stop = async (share) => {
+    setConfirm(null); setStopping(share._id);
+    try {
+      await sharesApi.stop(share._id);
+      setData((d) => ({ ...d, items: d.items.map((i) => (i._id === share._id ? { ...i, active: false, revoked: true } : i)) }));
+      toast.success(share.type === 'link' ? 'Link stopped. It no longer works.' : `Removed from ${share.recipient.name}'s "Shared with me"`);
+    } catch (e) { toast.error(errorMessage(e)); } finally { setStopping(null); }
+  };
+
+  if (error && !data) return <ErrorState message={error} onRetry={reload} />;
+  if (loading && !data) return <div className="card p-5"><SkeletonRows rows={4} /></div>;
+  const items = data.items;
+  if (!items.length) {
+    return (
+      <div className="card">
+        <EmptyState icon={Send} title="You haven't shared any jobs yet"
+          description="Select jobs on the Applications page and click Send to friends, or use Share on a job to make a link. Everything you share shows up here." />
+      </div>
+    );
+  }
+
+  const friendShares = items.filter((i) => i.type === 'friend');
+  const count = (st) => friendShares.filter((s) => friendStatus(s) === st).length;
+  const matches = (s) => filter === 'all' || (s.type === 'friend' ? friendStatus(s) === filter : filter === 'links');
+  const groups = groupByJob(items.filter(matches));
+  const filters = [
+    { value: 'all', label: 'All' },
+    { value: 'waiting', label: `Waiting${count('waiting') ? ` (${count('waiting')})` : ''}` },
+    { value: 'added', label: `Added${count('added') ? ` (${count('added')})` : ''}` },
+    { value: 'declined', label: 'Declined' },
+    { value: 'links', label: 'Links' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          ['Jobs shared', groupByJob(items).length, ''],
+          ['Added by friends', count('added'), 'text-emerald-600 dark:text-emerald-400'],
+          ['Waiting', count('waiting'), 'text-amber-600 dark:text-amber-400'],
+          ['Declined', count('declined'), 'text-muted'],
+        ].map(([label, value, tone]) => (
+          <div key={label} className="card px-4 py-3">
+            <p className={`text-xl font-semibold tabular-nums ${tone}`}>{value}</p>
+            <p className="text-xs text-muted">{label}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="-mx-1 overflow-x-auto overflow-y-hidden px-1 scrollbar-none"><Segmented value={filter} onChange={setFilter} options={filters} /></div>
+
+      {!groups.length ? (
+        <div className="card"><EmptyState icon={Send} title="Nothing here" description="No shared jobs match this filter." /></div>
+      ) : (
+        <div className="card divide-y divide-border">
+          {groups.map((g) => (
+            <div key={g.key} className="p-4">
+              <div className="flex items-start gap-3">
+                <CompanyLogo name={g.job.companyName} website={g.job.companyWebsite} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{g.job.jobTitle}</p>
+                  <p className="truncate text-sm text-muted">{g.job.companyName}</p>
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    {g.job.jobPostingUrl && <a href={g.job.jobPostingUrl} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1"><ExternalLink className="h-3 w-3" />Posting</a>}
+                    {g.application && <button type="button" onClick={() => navigate(`/applications/${g.application}`)} className="link">Open my application</button>}
+                  </div>
+                </div>
+              </div>
+              <ul className="mt-3 space-y-2 sm:pl-12">
+                {g.shares.map((s) => {
+                  const st = s.type === 'friend' ? friendStatus(s) : s.revoked ? 'stopped' : !s.active ? 'expired' : null;
+                  return (
+                    <li key={s._id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-subtle/50 px-3 py-2 text-sm">
+                      {s.type === 'friend' ? (
+                        <span className="inline-flex min-w-0 items-center gap-2 font-medium">
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-300">{initials(s.recipient.name)}</span>
+                          <span className="truncate">{s.recipient.name}</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 font-medium"><Link2 className="h-4 w-4 text-muted" />Share link</span>
+                      )}
+                      <span className="text-xs text-muted" title={fmtDate(s.sharedAt)}>{timeAgo(s.sharedAt)}</span>
+                      {s.type === 'link' && (
+                        <span className="text-xs text-muted">
+                          {s.counts.added} added · {s.counts.declined} declined{s.active ? ` · works until ${fmtDate(s.expiresAt)}` : ''}
+                        </span>
+                      )}
+                      <span className="ml-auto flex items-center gap-2">
+                        {st && <Badge tone={STATUS[st].tone}>{STATUS[st].label}</Badge>}
+                        {s.active && (s.type === 'link' || !s.response) && (
+                          <Button size="xs" variant="ghost" icon={Ban} loading={stopping === s._id} onClick={() => setConfirm(s)}
+                            aria-label={s.type === 'link' ? `Stop share link for ${g.job.jobTitle}` : `Stop sharing ${g.job.jobTitle} with ${s.recipient.name}`}>Stop</Button>
+                        )}
+                      </span>
+                      {s.message && <p className="w-full truncate text-xs italic text-muted">"{s.message}"</p>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-xs text-muted">Shares are listed here for a year. Links and friend shares stop working after 30 days, or when you stop them; jobs your friends already added stay in their tracker.</p>
+
+      <ConfirmDialog open={Boolean(confirm)} onClose={() => setConfirm(null)} tone="warning" confirmLabel="Stop sharing" onConfirm={() => stop(confirm)}
+        title={confirm?.type === 'link' ? 'Stop this share link?' : `Stop sharing with ${confirm?.recipient?.name}?`}
+        message={confirm?.type === 'link'
+          ? "The link stops working for anyone who hasn't opened it yet. People who already added the job keep it."
+          : `It disappears from their "Shared with me" list. If they already added the job, they keep it.`} />
+    </div>
+  );
+}
+
 export default function FriendsPage() {
   const [params, setParams] = useSearchParams();
   const { refreshFriends } = useOutletContext() || {};
-  const tab = params.get('tab') === 'shared' ? 'shared' : 'friends';
+  const tab = ['shared', 'sent'].includes(params.get('tab')) ? params.get('tab') : 'friends';
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="Friends" description="Send job openings to friends, and see the ones they send you." />
-      <Tabs className="mb-6" value={tab} onChange={(v) => setParams(v === 'shared' ? { tab: 'shared' } : {}, { replace: true })}
-        tabs={[{ value: 'friends', label: 'Friends', icon: Users }, { value: 'shared', label: 'Shared with me', icon: Send }]} />
-      {tab === 'shared' ? <SharedTab refreshBadge={refreshFriends} /> : <FriendsTab refreshBadge={refreshFriends} />}
+      <PageHeader title="Friends" description="Send job openings to friends, see the ones they send you, and track what you've shared." />
+      <Tabs className="mb-6" value={tab} onChange={(v) => setParams(v === 'friends' ? {} : { tab: v }, { replace: true })}
+        tabs={[{ value: 'friends', label: 'Friends', icon: Users }, { value: 'shared', label: 'Shared with me', icon: Inbox }, { value: 'sent', label: 'Sent', icon: Send }]} />
+      {tab === 'shared' ? <SharedTab refreshBadge={refreshFriends} /> : tab === 'sent' ? <SentTab /> : <FriendsTab refreshBadge={refreshFriends} />}
     </div>
   );
 }

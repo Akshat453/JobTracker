@@ -76,6 +76,8 @@ export const sharesApi = {
   acceptInbox: (id, { force } = {}) => data(api.post(`/shares/inbox/${id}/accept`, null, { params: force ? { force: true } : undefined })),
   declineInbox: (id) => data(api.post(`/shares/inbox/${id}/decline`)),
   acceptAll: () => data(api.post('/shares/inbox/accept-all')),
+  sent: () => data(api.get('/shares/sent')),
+  stop: (id) => data(api.post(`/shares/sent/${id}/stop`)),
 };
 
 export const friendsApi = {

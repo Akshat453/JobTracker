@@ -31,7 +31,8 @@ export function ResumeUploadModal({ open, onClose, onUploaded, defaultKind = 're
   const [progress, setProgress] = useState(0);
   const [drag, setDrag] = useState(false);
   const inputRef = useRef(null);
-  const defaults = { kind: defaultKind, category: 'General' };
+  // A new version usually contains much the same, so start from the previous version's short note.
+  const defaults = { kind: defaultKind, category: 'General', summary: baseDoc?.summary || '' };
   const { register, handleSubmit, reset, setValue, getValues, formState: { errors, isSubmitting } } = useForm({ defaultValues: defaults, shouldUnregister: true });
 
   // A new version usually lives in the same Overleaf / Google Docs project, so start with that link.
@@ -62,7 +63,7 @@ export function ResumeUploadModal({ open, onClose, onUploaded, defaultKind = 're
     if (!file) return setFileError(isVersion ? 'Choose the new version to upload' : 'Choose a file to upload');
     if (file.size + (sourceFile?.size || 0) > MAX_MB * 1024 * 1024) return setSourceError(`The two files together must be under ${MAX_MB} MB`);
     const fd = new FormData();
-    const fields = isVersion ? { version: values.version, description: values.description } : values;
+    const fields = isVersion ? { version: values.version, summary: values.summary, description: values.description } : values;
     Object.entries(fields).forEach(([k, v]) => v && fd.append(k, v));
     if (sourceUrl.trim()) fd.append('sourceUrl', sourceUrl.trim());
     fd.append('file', file);
@@ -113,12 +114,18 @@ export function ResumeUploadModal({ open, onClose, onUploaded, defaultKind = 're
         {isVersion ? (
           <div className="grid gap-4">
             <Field label="Version label" hint={`Leave empty to use "v${nextNumber}".`}><Input placeholder={`v${nextNumber}, v${nextNumber}-backend…`} {...register('version')} /></Field>
+            <Field label="Short note" hint="What this resume contains. Shown on the card and when you pick a resume for an application.">
+              <Input maxLength={140} placeholder="e.g. Backend · Java/Spring · Razorpay internship" {...register('summary')} />
+            </Field>
             <Field label="What changed?"><Textarea rows={3} placeholder="e.g. Added Razorpay internship, moved Projects above Education" {...register('description')} /></Field>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Name" required error={errors.name?.message} className="sm:col-span-2">
               <Input placeholder="e.g. SWE Resume" error={errors.name} {...register('name', { validate: (v) => isVersion || Boolean(v?.trim()) || 'Name is required' })} />
+            </Field>
+            <Field label="Short note" className="sm:col-span-2" hint="What this resume contains. Shown on the card and when you pick a resume for an application.">
+              <Input maxLength={140} placeholder="e.g. Backend · Java/Spring · Razorpay internship" {...register('summary')} />
             </Field>
             <Field label="Version"><Input placeholder="v1, v2-backend…" {...register('version')} /></Field>
             <Field label="Type"><Select options={DOCUMENT_KINDS} {...register('kind')} /></Field>

@@ -200,3 +200,65 @@ export const acceptAllInbox = asyncHandler(async (req, res) => {
   }
   res.json({ added, skipped });
 });
+
+// ---------------------------------------------------------------- "Sent" (what I shared)
+
+/**
+ * GET /shares/sent: every job the signed-in user shared, newest first, kept for a year.
+ * For a job sent to a friend: who it went to and what they did. For an open link: only how many
+ * people added or declined it (not who, since anyone with the link could have opened it).
+ */
+export const sent = asyncHandler(async (req, res) => {
+  const shares = await SharedJob.find({ owner: req.user._id }).sort({ createdAt: -1 }).limit(500).lean();
+  const recipientIds = [...new Set(shares.filter((s) => s.recipient).map((s) => String(s.recipient)))];
+  const people = await User.find({ _id: { $in: recipientIds } }).select('name').lean();
+  const nameOf = new Map(people.map((u) => [String(u._id), u.name]));
+  const now = new Date();
+  res.json({
+    items: shares.map((s) => {
+      const base = {
+        _id: s._id,
+        job: s.job,
+        application: s.application || null,
+        message: s.message || null,
+        sharedAt: s.createdAt,
+        expiresAt: s.expiresAt,
+        active: s.expiresAt > now,
+        revoked: Boolean(s.revokedAt),
+      };
+      if (s.recipient) {
+        const r = s.responses.find((x) => String(x.user) === String(s.recipient));
+        return {
+          ...base,
+          type: 'friend',
+          recipient: { _id: s.recipient, name: nameOf.get(String(s.recipient)) || 'Deleted account' },
+          response: r ? { action: r.action, at: r.at } : null,
+        };
+      }
+      return {
+        ...base,
+        type: 'link',
+        counts: {
+          added: s.responses.filter((x) => x.action === 'added').length,
+          declined: s.responses.filter((x) => x.action === 'declined').length,
+        },
+      };
+    }),
+  });
+});
+
+/** POST /shares/sent/:id/stop: the link stops working and the job leaves the friend's inbox. Jobs they already added stay. */
+export const stopSharing = asyncHandler(async (req, res) => {
+  assertObjectId(req.params.id);
+  const now = new Date();
+  const share = await SharedJob.findOneAndUpdate(
+    { _id: req.params.id, owner: req.user._id, expiresAt: { $gt: now } },
+    { $set: { expiresAt: now, revokedAt: now } },
+    { new: true },
+  );
+  if (!share) {
+    if (await SharedJob.exists({ _id: req.params.id, owner: req.user._id })) return res.json({ ok: true, alreadyStopped: true });
+    throw notFound();
+  }
+  res.json({ ok: true });
+});

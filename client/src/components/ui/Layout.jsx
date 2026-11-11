@@ -34,16 +34,16 @@ export function Card({ title, description, actions, children, className, bodyCla
 
 export function Tabs({ tabs, value, onChange, className }) {
   return (
-    <div className={cn('flex gap-1 overflow-x-auto border-b border-border scrollbar-thin', className)} role="tablist">
+    <div className={cn('flex gap-0.5 overflow-x-auto overflow-y-hidden border-b border-border scrollbar-none sm:gap-1', className)} role="tablist">
       {tabs.map((t) => (
         <button key={t.value} role="tab" aria-selected={value === t.value} type="button" onClick={() => onChange(t.value)}
-          className={cn('relative flex shrink-0 items-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors',
+          className={cn('relative flex shrink-0 items-center gap-1.5 px-2 py-2.5 text-sm font-medium transition-colors sm:gap-2 sm:px-3',
             value === t.value ? 'text-fg' : 'text-muted hover:text-fg')}>
           {t.icon && <t.icon className="h-4 w-4" />}
           {t.label}
           {t.badge != null && <span className="rounded-full bg-subtle px-1.5 text-[11px] text-muted">{t.badge}</span>}
           {t.error && <span className="h-1.5 w-1.5 rounded-full bg-red-500" />}
-          {value === t.value && <span className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-brand-600" />}
+          {value === t.value && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-brand-600" />}
         </button>
       ))}
     </div>

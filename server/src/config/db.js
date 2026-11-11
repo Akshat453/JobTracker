@@ -1,11 +1,13 @@
 import mongoose from 'mongoose';
 import { attachDatabasePool } from '@vercel/functions';
 import { env } from './env.js';
+import { migrateShareRetention } from '../models/SharedJob.js';
 
 mongoose.set('strictQuery', true);
 
 let connecting = null;
 let poolAttached = false;
+let migrated = false;
 
 /**
  * Connection settings. On Vercel, function instances are frozen between requests, and a TCP socket
@@ -41,6 +43,10 @@ export async function connectDB(uri = env.mongoUri) {
         attachDatabasePool(mongoose.connection.getClient());
       }
       if (!env.isTest) console.log(`[db] connected to ${mongoose.connection.name}`);
+      if (!migrated) {
+        migrated = true;
+        migrateShareRetention().catch((err) => console.error('[db] share history migration failed:', err.message));
+      }
       return mongoose.connection;
     })
     .finally(() => { connecting = null; });

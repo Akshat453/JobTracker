@@ -26,7 +26,7 @@ export function QuickSection() {
 
   const resumeOptions = resumes
     .filter((r) => !r.isArchived || r._id === resumeId)
-    .map((r) => ({ value: r._id, label: `${r.name}${r.version ? ` (${r.version})` : ''}` }));
+    .map((r) => ({ value: r._id, label: `${r.name}${r.version ? ` (${r.version})` : ''}${r.summary ? ` · ${r.summary}` : ''}` }));
   const emailOptions = emailAccounts
     .filter((a) => !a.isArchived || a._id === accountId)
     .map((a) => ({ value: a._id, label: `${a.email}${a.isDefault ? ' (default)' : ''}` }));

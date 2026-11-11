@@ -18,7 +18,7 @@ export function DocumentsSection() {
 
   const resumeOptions = resumes
     .filter((r) => !r.isArchived || r._id === resumeId)
-    .map((r) => ({ value: r._id, label: `${r.name}${r.version ? ` (${r.version})` : ''} · ${r.category}${r.isArchived ? ' — archived' : ''}` }));
+    .map((r) => ({ value: r._id, label: `${r.name}${r.version ? ` (${r.version})` : ''}${r.summary ? ` · ${r.summary}` : ` · ${r.category}`}${r.isArchived ? ' — archived' : ''}` }));
 
   return (
     <div className="space-y-6">
@@ -34,6 +34,7 @@ export function DocumentsSection() {
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-500/10 dark:text-brand-400"><FileText className="h-5 w-5" /></div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{selected.name} {selected.version && <span className="text-muted">· {selected.version}</span>}</p>
+              {selected.summary && <p className="truncate text-xs">{selected.summary}</p>}
               <p className="truncate text-xs text-muted">{selected.category} · uploaded {fmtDate(selected.createdAt)} · used in {selected.usage?.applications ?? 0} applications</p>
             </div>
             {selected.isArchived && <Badge tone="zinc"><Archive className="h-3 w-3" />Archived</Badge>}

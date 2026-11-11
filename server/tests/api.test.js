@@ -8,6 +8,7 @@ import { env } from '../src/config/env.js';
 import { MongoRateLimitStore } from '../src/utils/mongoRateLimitStore.js';
 import { maybeRunReminderNotifications, runReminderNotifications } from '../src/services/notifier.js';
 import { senderHeaders } from '../src/services/mailer.js';
+import { SharedJob as SharedJobModel, migrateShareRetention } from '../src/models/SharedJob.js';
 import { companyKey, jobKeys, postingKey, sameJob, titleKey } from '../src/utils/jobMatch.js';
 
 const app = createApp();
@@ -177,6 +178,26 @@ describe('resume versions and editable sources', () => {
     // Other users can't add versions to it.
     const other = await authB(api().post(`/api/resumes/${v1._id}/versions`)).attach('file', PDF, { filename: 'x.pdf', contentType: 'application/pdf' });
     assert.equal(other.status, 404);
+  });
+
+  test('a version can be renamed; renaming the resume renames every version', async () => {
+    const renamed = await authA(api().put(`/api/resumes/${v1._id}`)).send({ version: 'v1-college', description: 'Original' });
+    assert.equal(renamed.status, 200);
+    assert.equal(renamed.body.resume.version, 'v1-college');
+    const noted = await authA(api().put(`/api/resumes/${v1._id}`)).send({ summary: 'Backend · Java/Spring · college projects' });
+    assert.equal(noted.body.resume.summary, 'Backend · Java/Spring · college projects');
+    assert.equal(noted.body.resume.version, 'v1-college', 'other fields untouched');
+    assert.equal((await authA(api().put(`/api/resumes/${v1._id}`)).send({ summary: 'x'.repeat(141) })).status, 400);
+    const v4 = await authA(api().post(`/api/resumes/${v1._id}/versions`)).field('summary', 'Frontend · React')
+      .attach('file', PDF, { filename: 'cv4.pdf', contentType: 'application/pdf' });
+    assert.equal(v4.body.resume.summary, 'Frontend · React');
+    await authA(api().delete(`/api/resumes/${v4.body.resume._id}`));
+    await authA(api().put(`/api/resumes/${v2._id}`)).send({ name: 'Main CV' });
+    const versions = (await authA(api().get(`/api/resumes/${v1._id}`))).body.versions;
+    assert.deepEqual(versions.map((v) => v.name), ['Main CV', 'Main CV', 'Main CV']);
+    assert.deepEqual(versions.map((v) => v.version), ['v3', 'v2', 'v1-college'], 'version names stay per version');
+    // Other users' resumes are untouched by a rename.
+    assert.equal((await authB(api().put(`/api/resumes/${v1._id}`)).send({ name: 'x' })).status, 404);
   });
 
   test('editable source can be attached, replaced and removed; bad files and links are rejected', async () => {
@@ -642,6 +663,54 @@ describe('friends', () => {
     assert.match(app.notes, /Check these out/);
 
     assert.equal((await authC(api().post('/api/shares/inbox/accept-all'))).body.added, 2);
+  });
+
+  test('the sharer sees everything they shared and what each friend did', async () => {
+    const items = (await authA(api().get('/api/shares/sent'))).body.items;
+    const toFriends = items.filter((i) => i.type === 'friend');
+    assert.equal(toFriends.length, 4);
+    const status = (name) => toFriends.filter((i) => i.recipient.name === name).map((i) => i.response?.action).sort();
+    assert.deepEqual(status('Bob'), ['added', 'declined']);
+    assert.deepEqual(status('Cara'), ['added', 'added']);
+    assert.ok(toFriends.every((i) => i.message === 'Check these out' && i.active && !i.revoked));
+    assert.ok(!JSON.stringify(items).includes('@example.com'), 'no emails in the sent list');
+    // Open links show counts, not who opened them; expired ones are still listed.
+    const links = items.filter((i) => i.type === 'link');
+    assert.ok(links.length >= 1);
+    assert.ok(links.some((l) => l.counts.added >= 1));
+    assert.ok(links.some((l) => !l.active), 'expired links stay in the history');
+    assert.ok(links.every((l) => !('recipient' in l) && !('responses' in l)));
+    // Only your own shares.
+    assert.equal((await authB(api().get('/api/shares/sent'))).body.items.length, 0);
+  });
+
+  test('stop sharing: the job leaves the friend inbox, the history stays', async () => {
+    const sentItems = (await authA(api().get('/api/shares/sent'))).body.items;
+    const toCara = sentItems.find((i) => i.type === 'friend' && i.recipient.name === 'Cara');
+    assert.equal((await authB(api().post(`/api/shares/sent/${toCara._id}/stop`))).status, 404);
+    assert.equal((await authA(api().post(`/api/shares/sent/${toCara._id}/stop`))).status, 200);
+    assert.ok(!(await authC(api().get('/api/shares/inbox'))).body.items.some((i) => String(i._id) === String(toCara._id)));
+    assert.equal((await authC(api().post(`/api/shares/inbox/${toCara._id}/accept`))).status, 404);
+    const after = (await authA(api().get('/api/shares/sent'))).body.items.find((i) => i._id === toCara._id);
+    assert.equal(after.active, false);
+    assert.equal(after.revoked, true);
+    assert.equal(after.response.action, 'added', 'what Cara already did is kept');
+    assert.equal((await authA(api().post(`/api/shares/sent/${toCara._id}/stop`))).body.alreadyStopped, true);
+  });
+
+  test('share records outlive their link: no TTL on expiresAt, a year-long purge date instead', async () => {
+    const col = mongoose.connection.db.collection('sharedjobs');
+    // Simulate a database from before this change: old TTL index and no purge date.
+    await col.dropIndexes().catch(() => {});
+    await col.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+    await col.updateMany({}, { $unset: { purgeAt: '' } });
+    await migrateShareRetention();
+    const indexes = await col.indexes();
+    assert.ok(!indexes.some((ix) => ix.key.expiresAt === 1 && ix.expireAfterSeconds !== undefined));
+    const doc = await col.findOne({});
+    assert.ok(doc.purgeAt - doc.createdAt >= 364 * 86_400_000);
+    await SharedJobModel.syncIndexes();
+    assert.ok((await col.indexes()).some((ix) => ix.key.purgeAt === 1 && ix.expireAfterSeconds === 0));
   });
 
   test('a new code replaces the old one', async () => {
