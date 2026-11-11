@@ -6,6 +6,7 @@ import {
 import {
   optStr, optEmail, optUrl, optDate, optEnum, optNumber, optBool, objectId, optObjectId, stringList,
 } from './common.js';
+import { normalizeFriendCode } from '../utils/friendCode.js';
 
 const isTimeZone = (tz) => { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; } };
 
@@ -203,3 +204,20 @@ export const reminderCreateSchema = z.object({
   application: optObjectId,
 });
 export const reminderUpdateSchema = reminderCreateSchema.partial().extend({ completed: optBool });
+
+// ---------- Friends ----------
+export const friendRequestSchema = z.object({
+  code: z.string().trim().max(20).transform((v, ctx) => {
+    const code = normalizeFriendCode(v);
+    if (!code) ctx.addIssue({ code: 'custom', message: 'Friend codes look like K7QM-3XPA (8 letters and numbers)' });
+    return code ?? z.NEVER;
+  }),
+});
+
+export const sendJobsSchema = z.object({
+  applicationIds: z.array(objectId).min(1, 'Select at least one job').max(25, 'Send at most 25 jobs at a time')
+    .transform((ids) => [...new Set(ids)]),
+  friendIds: z.array(objectId).min(1, 'Choose at least one friend').max(20, 'Choose at most 20 friends')
+    .transform((ids) => [...new Set(ids)]),
+  message: optStr(500),
+});

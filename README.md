@@ -14,6 +14,8 @@ A personal CRM for the job hunt. Track every application from *saved* to *offer*
 | **Dashboard** | Counts for all statuses, conversion rate, weekly activity, status donut, by company, by job type, monthly bars, upcoming interviews, due/overdue reminders (complete in one click), recently updated. All computed from the database. |
 | **Application form** | **Quick add** (default for new entries): one screen with company, title, website, posting URL, job ID, source, status, date, resume and email, plus **Save & add another**, which keeps status, source, date, resume and email for the next entry. Switch to the **Full form** at any time without losing what you've typed. Full form: 7 tabs: Company & Job · Application · Email · Resume & Docs · Recruiter & Referral · Interviews (dynamic rounds) · Additional (skills, difficulty, tags, JD snapshot). Client + server validation, URL normalisation, duplicate detection with “save anyway”. |
 | **Applications** | Table, card and Kanban (drag-and-drop) views. Search + filters (status, date range, email, resume, job type, source, priority, tag) that combine and live in the URL. Sort by newest, oldest, priority, next follow-up, updated, company. Pagination. View / edit / duplicate / delete / open posting. |
+| **Share a job** | **Share** on an application creates a private link (expires after 30 days). A friend who opens it, after signing in, sees the company, website, job title and posting link, and can **Add to my Saved** or **Decline**. Nothing else from your application is shared. |
+| **Friends** | Every user has a private **friend code** (e.g. `K7QM-3XPA`, renewable). Add friends by code (users can't be searched or listed), accept or decline requests. Select several jobs on the Applications page, click **Send to friends**, and each friend gets **one email listing the jobs** plus a **Shared with me** list where they can add each one (or all) to their Saved list or decline. Only company, website, job title and posting link are shared. |
 | **Status lifecycle** | 11 statuses. Every change records from → to, timestamp and optional note in the status history, plus an activity timeline entry. Undo from the toast. |
 | **Resume library** | Upload PDF/DOC/DOCX with name, version, category, description. Inline PDF preview, download, usage count, interviews & offers per resume, best-performer badge. Documents in use are **archived, never deleted**; each application also stores a snapshot of the exact resume version submitted. Cover letters and other documents share the library. |
 | **Email accounts** | Multiple addresses, default account (pre-selected in the form), counts per account, filter applications by account. Accounts in use are archived instead of deleted. Manual tracking only — an `integration` field is reserved for future Gmail/Outlook OAuth. |
@@ -55,7 +57,7 @@ demo@jobtracker.dev / password123
 
 ```bash
 cd server
-npm test        # 30 integration tests against a throw-away `jobtracker_test` database
+npm test        # 42 integration tests against a throw-away `jobtracker_test` database
 ```
 
 The suite covers registration/login, profile, email accounts, resume upload/download, full application create with interviews, validation errors, duplicate detection, status history, nested updates and interview syncing, combined search/filters/sort/pagination, cross-user isolation, CSV, reminders, the email notifier, analytics, PDF generation, safe (archival) deletion and cascade deletes.

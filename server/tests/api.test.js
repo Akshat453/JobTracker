@@ -327,6 +327,183 @@ describe('analytics', () => {
   });
 });
 
+describe('sharing jobs', () => {
+  let link; let token; let ownApp;
+  test('owner creates a link that carries only four fields', async () => {
+    ownApp = (await authA(api().post('/api/applications')).send({
+      company: { name: 'Sharely', website: 'sharely.io', location: 'Pune' },
+      jobTitle: 'Backend Engineer', jobPostingUrl: 'https://sharely.io/jobs/1', status: 'interviewing',
+      notes: 'secret notes', salary: { min: 100 },
+    })).body.application;
+    const res = await authA(api().post(`/api/applications/${ownApp._id}/share`));
+    assert.equal(res.status, 201);
+    link = res.body.url;
+    token = link.split('/share/')[1];
+    assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+    // The token itself is never stored, only its hash.
+    assert.equal(await mongoose.connection.db.collection('sharedjobs').countDocuments({ tokenHash: token }), 0);
+
+    const view = await authB(api().get(`/api/shares/${token}`));
+    assert.equal(view.status, 200);
+    assert.deepEqual(Object.keys(view.body.job).sort(), ['companyName', 'companyWebsite', 'jobPostingUrl', 'jobTitle']);
+    assert.equal(view.body.job.jobTitle, 'Backend Engineer');
+    assert.equal(view.body.isOwner, false);
+    assert.equal(view.body.response, null);
+    assert.ok(!JSON.stringify(view.body).includes('secret notes'));
+    assert.ok(!JSON.stringify(view.body).includes('interviewing'));
+  });
+
+  test('only the owner can share an application; links need sign-in', async () => {
+    assert.equal((await authB(api().post(`/api/applications/${ownApp._id}/share`))).status, 404);
+    assert.equal((await api().get(`/api/shares/${token}`)).status, 401);
+    assert.equal((await authB(api().get('/api/shares/not-a-token'))).status, 404);
+    assert.equal((await authB(api().get(`/api/shares/${'A'.repeat(43)}`))).status, 404);
+  });
+
+  test('recipient adds it as Saved, only once', async () => {
+    const add = await authB(api().post(`/api/shares/${token}/accept`));
+    assert.equal(add.status, 201);
+    const created = (await authB(api().get(`/api/applications/${add.body.application._id}`))).body.application;
+    assert.equal(created.status, 'saved');
+    assert.equal(created.company.name, 'Sharely');
+    assert.equal(created.company.website, ownApp.company.website);
+    assert.equal(created.jobPostingUrl, 'https://sharely.io/jobs/1');
+    assert.equal(created.company.location, undefined);
+    assert.equal(created.salary?.min, undefined);
+
+    const again = await authB(api().post(`/api/shares/${token}/accept`));
+    assert.equal(again.body.alreadyAdded, true);
+    const view = await authB(api().get(`/api/shares/${token}`));
+    assert.equal(view.body.response.action, 'added');
+  });
+
+  test('owner cannot accept their own link; decline is recorded; expired links stop working', async () => {
+    assert.equal((await authA(api().post(`/api/shares/${token}/accept`))).status, 400);
+    assert.equal((await authA(api().get(`/api/shares/${token}`))).body.isOwner, true);
+
+    const link2 = (await authA(api().post(`/api/applications/${ownApp._id}/share`))).body.url.split('/share/')[1];
+    assert.equal((await authB(api().post(`/api/shares/${link2}/decline`))).status, 200);
+    assert.equal((await authB(api().get(`/api/shares/${link2}`))).body.response.action, 'declined');
+    // B already tracks this job (from the first link), so accepting reports the duplicate.
+    const dup = await authB(api().post(`/api/shares/${link2}/accept`));
+    assert.equal(dup.status, 409);
+
+    await mongoose.connection.db.collection('sharedjobs').updateMany({}, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+    assert.equal((await authB(api().get(`/api/shares/${token}`))).status, 404);
+  });
+});
+
+describe('friends', () => {
+  let tokenC; let idB; let idC; let jobs;
+  const authC = (r) => r.set('Authorization', `Bearer ${tokenC}`);
+
+  before(async () => {
+    const c = await api().post('/api/auth/register').send({ name: 'Cara', email: 'cara@example.com', password: 'password123' });
+    tokenC = c.body.token; idC = c.body.user._id;
+    idB = (await authB(api().get('/api/auth/me'))).body.user._id;
+    jobs = [];
+    for (const [name, title] of [['Friendco', 'Data Analyst'], ['Pal Inc', 'QA Engineer <script>']]) {
+      jobs.push((await authA(api().post('/api/applications')).send({ company: { name, website: `${name.split(' ')[0].toLowerCase()}.com` }, jobTitle: title, jobPostingUrl: `https://${name.split(' ')[0].toLowerCase()}.com/job`, notes: 'private note', status: 'applied' })).body.application._id);
+    }
+  });
+
+  const codeOf = async (auth) => (await auth(api().get('/api/friends'))).body.myCode;
+
+  test('every user has a private friend code; requests need it', async () => {
+    const codeB = await codeOf(authB);
+    assert.match(codeB, /^[A-Z2-9]{4}-[A-Z2-9]{4}$/);
+    assert.equal(await codeOf(authB), codeB); // stable
+    // Users can't be found by email any more, and codes never show up in profile responses.
+    assert.equal((await authA(api().post('/api/friends')).send({ email: 'bob@example.com' })).status, 400);
+    assert.equal((await authB(api().get('/api/auth/me'))).body.user.friendCode, undefined);
+    assert.equal((await authA(api().post('/api/friends')).send({ code: 'ZZZZ-ZZZZ' })).status, 404);
+    assert.equal((await authA(api().post('/api/friends')).send({ code: 'hello' })).status, 400);
+    assert.equal((await authA(api().post('/api/friends')).send({ code: await codeOf(authA) })).status, 400);
+  });
+
+  test('request by code, accept, and list both ways', async () => {
+    const codeB = await codeOf(authB);
+    const typed = codeB.toLowerCase().replace('-', ' '); // forgiving input
+    const sent = await authA(api().post('/api/friends')).send({ code: typed });
+    assert.equal(sent.status, 201);
+    assert.equal((await authA(api().post('/api/friends')).send({ code: codeB })).status, 409);
+
+    const a = (await authA(api().get('/api/friends'))).body;
+    assert.equal(a.outgoing.length, 1);
+    assert.equal(a.outgoing[0].user.email, undefined); // not revealed before they accept
+    const b = (await authB(api().get('/api/friends'))).body;
+    assert.equal(b.incoming.length, 1);
+    assert.equal(b.incoming[0].user.name, 'Alice');
+    assert.equal((await authB(api().get('/api/friends/summary'))).body.requests, 1);
+
+    // The sender can't accept their own request; a stranger can't touch it.
+    assert.equal((await authA(api().post(`/api/friends/${a.outgoing[0]._id}/accept`))).status, 403);
+    assert.equal((await authC(api().post(`/api/friends/${a.outgoing[0]._id}/accept`))).status, 404);
+    assert.equal((await authC(api().delete(`/api/friends/${a.outgoing[0]._id}`))).status, 404);
+
+    assert.equal((await authB(api().post(`/api/friends/${b.incoming[0]._id}/accept`))).status, 200);
+    assert.equal((await authA(api().get('/api/friends'))).body.friends[0].user.name, 'Bob');
+    assert.equal((await authB(api().get('/api/friends'))).body.friends[0].user.name, 'Alice');
+  });
+
+  test('a request back to someone who asked you accepts it', async () => {
+    await authC(api().post('/api/friends')).send({ code: await codeOf(authA) });
+    const back = await authA(api().post('/api/friends')).send({ code: await codeOf(authC) });
+    assert.equal(back.body.status, 'accepted');
+  });
+
+  test('sends several jobs to friends only, sharing just four fields', async () => {
+    const stranger = await api().post('/api/auth/register').send({ name: 'Dan', email: 'dan@example.com', password: 'password123' });
+    const bad = await authA(api().post('/api/friends/send-jobs')).send({ applicationIds: jobs, friendIds: [stranger.body.user._id] });
+    assert.equal(bad.status, 400);
+    // Someone else's jobs can't be sent.
+    assert.equal((await authB(api().post('/api/friends/send-jobs')).send({ applicationIds: jobs, friendIds: [(await authA(api().get('/api/auth/me'))).body.user._id] })).status, 404);
+
+    const ok = await authA(api().post('/api/friends/send-jobs')).send({ applicationIds: jobs, friendIds: [idB, idC], message: 'Check these out' });
+    assert.equal(ok.status, 201);
+    assert.equal(ok.body.jobs, 2);
+    assert.equal(ok.body.friends, 2);
+
+    const inbox = (await authB(api().get('/api/shares/inbox'))).body.items;
+    assert.equal(inbox.length, 2);
+    assert.equal(inbox[0].sharedBy, 'Alice');
+    assert.equal(inbox[0].message, 'Check these out');
+    assert.deepEqual(Object.keys(inbox[0].job).sort(), ['companyName', 'companyWebsite', 'jobPostingUrl', 'jobTitle']);
+    assert.ok(!JSON.stringify(inbox).includes('private note'));
+    assert.equal((await authB(api().get('/api/friends/summary'))).body.shared, 2);
+    // Items sent to Bob are invisible to Cara's inbox actions.
+    assert.equal((await authC(api().post(`/api/shares/inbox/${inbox[0]._id}/accept`))).status, 404);
+
+    const one = await authB(api().post(`/api/shares/inbox/${inbox[0]._id}/decline`));
+    assert.equal(one.status, 200);
+    const all = await authB(api().post('/api/shares/inbox/accept-all'));
+    assert.deepEqual(all.body, { added: 1, skipped: 0 });
+    const after = (await authB(api().get('/api/shares/inbox'))).body.items;
+    assert.deepEqual(after.map((i) => i.response.action).sort(), ['added', 'declined']);
+    assert.equal((await authB(api().get('/api/friends/summary'))).body.shared, 0);
+    const added = after.find((i) => i.response.action === 'added');
+    const app = (await authB(api().get(`/api/applications/${added.response.application}`))).body.application;
+    assert.equal(app.status, 'saved');
+    assert.match(app.notes, /Check these out/);
+
+    assert.equal((await authC(api().post('/api/shares/inbox/accept-all'))).body.added, 2);
+  });
+
+  test('a new code replaces the old one', async () => {
+    const old = await codeOf(authC);
+    const fresh = (await authC(api().post('/api/friend-code/regenerate'))).body.myCode;
+    assert.notEqual(fresh, old);
+    assert.equal((await authB(api().post('/api/friends')).send({ code: old })).status, 404);
+  });
+
+  test('unfriending removes the connection', async () => {
+    const f = (await authB(api().get('/api/friends'))).body.friends[0];
+    assert.equal((await authB(api().delete(`/api/friends/${f._id}`))).status, 200);
+    assert.equal((await authA(api().get('/api/friends'))).body.friends.some((x) => x.user.name === 'Bob'), false);
+    assert.equal((await authA(api().post('/api/friends/send-jobs')).send({ applicationIds: jobs, friendIds: [idB] })).status, 400);
+  });
+});
+
 describe('safe deletion', () => {
   test('referenced resume/email are archived, unreferenced deleted', async () => {
     const r1 = await authA(api().delete(`/api/resumes/${resumeId}`));

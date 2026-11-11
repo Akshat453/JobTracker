@@ -26,6 +26,10 @@ const userSchema = new mongoose.Schema(
     linkedinUrl: { type: String, trim: true },
     skills: [{ type: String, trim: true }],
     notificationPrefs: { type: notificationPrefsSchema, default: () => ({}) },
+    // Personal code friends type to send a friend request (e.g. "K7QM-3XPA"). Users can't be
+    // searched or listed, so this (shared by the user themselves) is the only way to find someone.
+    // Not selected by default, so it never appears in other responses by accident.
+    friendCode: { type: String, unique: true, sparse: true, select: false },
   },
   { timestamps: true },
 );

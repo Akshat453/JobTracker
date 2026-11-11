@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from './context/AuthContext.jsx';
 import { AppLayout } from './components/layout/AppLayout.jsx';
-import { LoginPage, RegisterPage } from './pages/AuthPages.jsx';
+import { LoginPage, RegisterPage, returnPath } from './pages/AuthPages.jsx';
 
 // Page bundles load on demand; once signed in, the rest are prefetched in the background so
 // opening any page later doesn't wait for its code to download.
@@ -18,6 +18,8 @@ const pageLoaders = {
   Reminders: () => import('./pages/RemindersPage.jsx'),
   Analytics: () => import('./pages/AnalyticsPage.jsx'),
   Settings: () => import('./pages/SettingsPage.jsx'),
+  SharedJob: () => import('./pages/SharedJobPage.jsx'),
+  Friends: () => import('./pages/FriendsPage.jsx'),
 };
 const DashboardPage = lazy(pageLoaders.Dashboard);
 const ApplicationsPage = lazy(pageLoaders.Applications);
@@ -29,6 +31,8 @@ const InterviewsPage = lazy(pageLoaders.Interviews);
 const RemindersPage = lazy(pageLoaders.Reminders);
 const AnalyticsPage = lazy(pageLoaders.Analytics);
 const SettingsPage = lazy(pageLoaders.Settings);
+const SharedJobPage = lazy(pageLoaders.SharedJob);
+const FriendsPage = lazy(pageLoaders.Friends);
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage.jsx'));
 
 function usePrefetchPages(enabled) {
@@ -63,8 +67,9 @@ function RequireAuth({ children }) {
 
 function GuestOnly({ children }) {
   const { user, loading } = useAuth();
+  const location = useLocation();
   if (loading) return <FullScreenLoader />;
-  return user ? <Navigate to="/" replace /> : children;
+  return user ? <Navigate to={returnPath(location)} replace /> : children;
 }
 
 export default function App() {
@@ -87,6 +92,8 @@ export default function App() {
           <Route path="reminders" element={<RemindersPage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="share/:token" element={<SharedJobPage />} />
+          <Route path="friends" element={<FriendsPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>

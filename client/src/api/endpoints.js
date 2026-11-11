@@ -63,3 +63,24 @@ export const analyticsApi = {
 export const notificationsApi = {
   test: () => data(api.post('/notifications/test')),
 };
+
+export const sharesApi = {
+  create: (applicationId) => data(api.post(`/applications/${applicationId}/share`)),
+  get: (token) => data(api.get(`/shares/${encodeURIComponent(token)}`)),
+  accept: (token) => data(api.post(`/shares/${encodeURIComponent(token)}/accept`)),
+  decline: (token) => data(api.post(`/shares/${encodeURIComponent(token)}/decline`)),
+  inbox: () => data(api.get('/shares/inbox')),
+  acceptInbox: (id) => data(api.post(`/shares/inbox/${id}/accept`)),
+  declineInbox: (id) => data(api.post(`/shares/inbox/${id}/decline`)),
+  acceptAll: () => data(api.post('/shares/inbox/accept-all')),
+};
+
+export const friendsApi = {
+  list: () => data(api.get('/friends')),
+  summary: () => data(api.get('/friends/summary')),
+  request: (code) => data(api.post('/friends', { code })),
+  regenerateCode: () => data(api.post('/friend-code/regenerate')),
+  accept: (id) => data(api.post(`/friends/${id}/accept`)),
+  remove: (id) => data(api.delete(`/friends/${id}`)),
+  sendJobs: (body) => data(api.post('/friends/send-jobs', body)),
+};

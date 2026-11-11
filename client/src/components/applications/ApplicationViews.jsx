@@ -21,13 +21,31 @@ function FollowUp({ date }) {
   );
 }
 
-export function ApplicationTable({ items, actions }) {
+function SelectBox({ checked, onChange, label, indeterminate = false, className }) {
+  return (
+    <input type="checkbox" checked={checked} aria-label={label} onChange={(e) => onChange(e.target.checked)}
+      ref={(el) => { if (el) el.indeterminate = indeterminate; }} onClick={(e) => e.stopPropagation()}
+      className={cn('h-4 w-4 cursor-pointer rounded accent-brand-600', className)} />
+  );
+}
+
+/** `selection` (optional): { has(id), toggle(app, on), setMany(apps, on) } for multi-select. */
+export function ApplicationTable({ items, actions, selection }) {
   const navigate = useNavigate();
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[960px] text-sm">
         <thead>
           <tr className="border-b border-border text-left text-xs font-medium text-muted">
+            {selection && (() => {
+              const n = items.filter((a) => selection.has(a._id)).length;
+              return (
+                <th className="w-10 py-2.5 pl-4">
+                  <SelectBox label="Select all on this page" checked={n > 0 && n === items.length} indeterminate={n > 0 && n < items.length}
+                    onChange={(on) => selection.setMany(items, on)} />
+                </th>
+              );
+            })()}
             <th className="px-4 py-2.5 font-medium">Company</th>
             <th className="px-3 py-2.5 font-medium">Applied</th>
             <th className="px-3 py-2.5 font-medium">Status</th>
@@ -40,7 +58,13 @@ export function ApplicationTable({ items, actions }) {
         </thead>
         <tbody className="divide-y divide-border">
           {items.map((a) => (
-            <tr key={a._id} onClick={() => navigate(`/applications/${a._id}`)} className="group cursor-pointer transition-colors hover:bg-subtle/50">
+            <tr key={a._id} onClick={() => navigate(`/applications/${a._id}`)}
+              className={cn('group cursor-pointer transition-colors hover:bg-subtle/50', selection?.has(a._id) && 'bg-brand-50/50 dark:bg-brand-500/5')}>
+              {selection && (
+                <td className="w-10 py-2.5 pl-4" onClick={(e) => e.stopPropagation()}>
+                  <SelectBox label={`Select ${a.jobTitle} at ${a.company.name}`} checked={selection.has(a._id)} onChange={(on) => selection.toggle(a, on)} />
+                </td>
+              )}
               <td className="px-4 py-2.5">
                 <div className="flex items-center gap-3">
                   <CompanyLogo name={a.company.name} website={a.company.website} size="sm" />
@@ -70,12 +94,13 @@ export function ApplicationTable({ items, actions }) {
   );
 }
 
-export function ApplicationCards({ items, actions }) {
+export function ApplicationCards({ items, actions, selection }) {
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {items.map((a) => (
-        <div key={a._id} className="card group flex flex-col p-4 transition hover:-translate-y-0.5 hover:shadow-pop">
+        <div key={a._id} className={cn('card group flex flex-col p-4 transition hover:-translate-y-0.5 hover:shadow-pop', selection?.has(a._id) && 'ring-2 ring-brand-500/40')}>
           <div className="flex items-start gap-3">
+            {selection && <SelectBox className="mt-2.5" label={`Select ${a.jobTitle} at ${a.company.name}`} checked={selection.has(a._id)} onChange={(on) => selection.toggle(a, on)} />}
             <CompanyLogo name={a.company.name} website={a.company.website} />
             <Link to={`/applications/${a._id}`} className="min-w-0 flex-1">
               <p className="truncate font-medium group-hover:text-brand-600">{a.company.name}</p>

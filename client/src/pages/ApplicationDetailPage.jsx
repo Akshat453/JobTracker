@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams, useOutletContext } from 'react-router-dom';
 import {
   ArrowLeft, Pencil, Copy, Trash2, ExternalLink, Globe, MapPin, Mail, FileText, Eye, Download, Plus, Video,
-  CheckCircle2, Circle, Bell, CalendarClock, MoreHorizontal, Send, Zap, Users, Archive,
+  CheckCircle2, Circle, Bell, CalendarClock, MoreHorizontal, Send, Zap, Users, Archive, Share2,
 } from 'lucide-react';
 import { applicationsApi, interviewsApi, remindersApi } from '../api/endpoints.js';
 import { downloadFile, errorMessage } from '../api/client.js';
@@ -18,6 +18,8 @@ import { StatusTimeline, ActivityTimeline } from '../components/applications/Tim
 import { InterviewFormModal } from '../components/interviews/InterviewFormModal.jsx';
 import { ReminderFormModal } from '../components/reminders/ReminderFormModal.jsx';
 import { DocumentPreviewModal } from '../components/resumes/DocumentPreviewModal.jsx';
+import { ShareJobModal } from '../components/applications/ShareJobModal.jsx';
+import { SendToFriendsModal } from '../components/friends/SendToFriendsModal.jsx';
 import {
   fmtDate, fmtShort, fmtDateTime, fmtTime, fmtSalary, relativeDay, isOverdue, toDateInput, cn,
 } from '../lib/format.js';
@@ -64,6 +66,8 @@ export default function ApplicationDetailPage() {
   const [remModal, setRemModal] = useState(null);
   const [preview, setPreview] = useState(null);
   const [quickEdit, setQuickEdit] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [sendingToFriends, setSendingToFriends] = useState(false);
   const [ivDelete, setIvDelete] = useState(null);
   const [note, setNote] = useState('');
   const [sideTab, setSideTab] = useState('status');
@@ -127,10 +131,12 @@ export default function ApplicationDetailPage() {
           </div>
           <div className="flex flex-wrap gap-2 sm:shrink-0">
             {posting && <Button variant="secondary" icon={ExternalLink} onClick={() => window.open(posting, '_blank', 'noopener,noreferrer')}>Job posting</Button>}
+            <Button variant="secondary" icon={Share2} onClick={() => setSharing(true)}>Share</Button>
             <Button variant="secondary" icon={Zap} onClick={() => setQuickEdit(true)}>Quick edit</Button>
             <Button icon={Pencil} onClick={() => navigate(`/applications/${app._id}/edit`)}>Edit</Button>
             <Menu trigger={<Button variant="secondary" size="icon" aria-label="More"><MoreHorizontal className="h-4 w-4" /></Button>}
               items={[
+                { label: 'Send to friends', icon: Users, onClick: () => setSendingToFriends(true) },
                 { label: 'Duplicate', icon: Copy, onClick: () => actions.duplicate(app) },
                 { label: 'Add reminder', icon: Bell, onClick: () => setRemModal({}) },
                 { divider: true },
@@ -343,6 +349,8 @@ export default function ApplicationDetailPage() {
       <InterviewFormModal open={!!ivModal} onClose={() => setIvModal(null)} interview={ivModal?.interview} applicationId={app._id} onSaved={() => { reload(); refreshReminders?.(); }} />
       <ReminderFormModal open={!!remModal} onClose={() => setRemModal(null)} reminder={remModal?.reminder} applicationId={app._id} onSaved={() => { reload(); refreshReminders?.(); }} />
       <DocumentPreviewModal doc={preview} onClose={() => setPreview(null)} />
+      <ShareJobModal app={app} open={sharing} onClose={() => setSharing(false)} />
+      <SendToFriendsModal open={sendingToFriends} onClose={() => setSendingToFriends(false)} jobs={[app]} />
       <QuickEditModal app={app} open={quickEdit} onClose={() => setQuickEdit(false)} onSaved={(a) => setData(a)} />
       <ConfirmDialog open={!!ivDelete} onClose={() => setIvDelete(null)} onConfirm={deleteInterview} title="Delete interview round?" message={`"${ivDelete?.roundName}" and its reminder will be removed.`} />
       {actions.dialog}

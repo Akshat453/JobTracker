@@ -1,5 +1,6 @@
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Table2, LayoutGrid, KanbanSquare, Download, Briefcase, SearchX } from 'lucide-react';
+import { Plus, Table2, LayoutGrid, KanbanSquare, Download, Briefcase, SearchX, Send, X } from 'lucide-react';
 import { applicationsApi } from '../api/endpoints.js';
 import { downloadFile, errorMessage } from '../api/client.js';
 import { useAsync } from '../hooks/useAsync.js';
@@ -10,6 +11,7 @@ import { PageHeader, Button, Segmented, Pagination, SkeletonRows, EmptyState, Er
 import { ApplicationFilters, FILTER_KEYS } from '../components/applications/ApplicationFilters.jsx';
 import { ApplicationTable, ApplicationCards } from '../components/applications/ApplicationViews.jsx';
 import { KanbanBoard } from '../components/applications/KanbanBoard.jsx';
+import { SendToFriendsModal } from '../components/friends/SendToFriendsModal.jsx';
 
 const VIEW_KEY = 'jt-app-view';
 const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'table'; } catch { return 'table'; } };
@@ -32,6 +34,15 @@ export default function ApplicationsPage() {
       total: kind === 'delete' ? d.total - 1 : d.total,
     })),
   });
+
+  // Selected jobs (kept while paging or filtering) for "Send to friends".
+  const [selected, setSelected] = useState(() => new Map());
+  const [sendOpen, setSendOpen] = useState(false);
+  const selection = useMemo(() => ({
+    has: (id) => selected.has(id),
+    toggle: (a, on) => setSelected((m) => { const n = new Map(m); if (on) n.set(a._id, a); else n.delete(a._id); return n; }),
+    setMany: (list, on) => setSelected((m) => { const n = new Map(m); list.forEach((a) => (on ? n.set(a._id, a) : n.delete(a._id))); return n; }),
+  }), [selected]);
 
   const setView = (v) => {
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* ignore */ }
@@ -81,8 +92,8 @@ export default function ApplicationsPage() {
           ) : (
             <div className={loading ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
               {view === 'kanban' ? <KanbanBoard items={items} actions={actions} />
-                : view === 'cards' ? <ApplicationCards items={items} actions={actions} />
-                  : <div className="card overflow-hidden"><ApplicationTable items={items} actions={actions} /></div>}
+                : view === 'cards' ? <ApplicationCards items={items} actions={actions} selection={selection} />
+                  : <div className="card overflow-hidden"><ApplicationTable items={items} actions={actions} selection={selection} /></div>}
               {view !== 'kanban' && (
                 <Pagination page={data.page} totalPages={data.totalPages} total={data.total} limit={data.limit}
                   onChange={(p) => { setFilters({ ...filters, page: p }); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
@@ -90,6 +101,17 @@ export default function ApplicationsPage() {
             </div>
           )}
       {actions.dialog}
+
+      {selected.size > 0 && view !== 'kanban' && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-30 flex justify-center px-4 lg:pl-60">
+          <div role="toolbar" aria-label="Selected jobs" className="pointer-events-auto flex items-center gap-2 rounded-xl border border-border bg-surface p-2 pl-4 shadow-pop">
+            <span className="whitespace-nowrap text-sm font-medium">{selected.size} selected</span>
+            <Button size="sm" icon={Send} onClick={() => setSendOpen(true)}>Send to friends</Button>
+            <Button size="sm" variant="ghost" icon={X} onClick={() => setSelected(new Map())} aria-label="Clear selection">Clear</Button>
+          </div>
+        </div>
+      )}
+      <SendToFriendsModal open={sendOpen} onClose={() => setSendOpen(false)} jobs={[...selected.values()]} onSent={() => setSelected(new Map())} />
     </div>
   );
 }

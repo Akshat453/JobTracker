@@ -38,6 +38,23 @@ function AuthShell({ title, subtitle, children, footer }) {
   );
 }
 
+// Where to go after signing in: the page that sent the user here (e.g. a shared job link), if any.
+// Only in-app paths are accepted, so a crafted link can't send someone to another site.
+export function returnPath(location) {
+  const from = location.state?.from;
+  const path = from?.pathname;
+  return typeof path === 'string' && path.startsWith('/') && !path.startsWith('//') ? path + (from.search || '') : '/';
+}
+
+function SharedJobNote({ location }) {
+  if (!returnPath(location).startsWith('/share/')) return null;
+  return (
+    <div className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200">
+      A friend shared a job with you. Log in or create an account to see it and add it to your list.
+    </div>
+  );
+}
+
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -49,15 +66,16 @@ export function LoginPage() {
     setServerError('');
     try {
       await login(values);
-      navigate(location.state?.from?.pathname || '/', { replace: true });
+      navigate(returnPath(location), { replace: true });
     } catch (err) {
       setServerError(errorMessage(err, 'Could not log in'));
     }
   };
 
   return (
-    <AuthShell title="Welcome back" subtitle="Log in to continue your job search." footer={<>New here? <Link to="/register" className="link">Create an account</Link></>}>
+    <AuthShell title="Welcome back" subtitle="Log in to continue your job search." footer={<>New here? <Link to="/register" state={location.state} className="link">Create an account</Link></>}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        <SharedJobNote location={location} />
         {serverError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{serverError}</div>}
         <Field label="Email" error={errors.email?.message} htmlFor="email">
           <Input id="email" type="email" autoComplete="email" error={errors.email}
@@ -76,6 +94,7 @@ export function LoginPage() {
 export function RegisterPage() {
   const { register: signup } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [serverError, setServerError] = useState('');
   const { inviteRequired } = useServerConfig();
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm();
@@ -84,15 +103,16 @@ export function RegisterPage() {
     setServerError('');
     try {
       await signup({ name, email, password, ...(inviteRequired ? { inviteCode } : {}) });
-      navigate('/', { replace: true });
+      navigate(returnPath(location), { replace: true });
     } catch (err) {
       setServerError(errorMessage(err, 'Could not create account'));
     }
   };
 
   return (
-    <AuthShell title="Create your account" subtitle="Start tracking applications in under a minute." footer={<>Already have an account? <Link to="/login" className="link">Log in</Link></>}>
+    <AuthShell title="Create your account" subtitle="Start tracking applications in under a minute." footer={<>Already have an account? <Link to="/login" state={location.state} className="link">Log in</Link></>}>
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
+        <SharedJobNote location={location} />
         {serverError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">{serverError}</div>}
         <Field label="Full name" error={errors.name?.message} htmlFor="name">
           <Input id="name" autoComplete="name" error={errors.name} {...register('name', { required: 'Name is required', minLength: { value: 2, message: 'Name is too short' } })} />

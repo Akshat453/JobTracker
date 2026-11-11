@@ -157,3 +157,32 @@ All accept `from` / `to` (ISO dates), except `overview`.
 |---|---|---|
 | POST | `/notifications/test` | Sends a test email (or logs it if SMTP isn't configured) |
 | GET | `/cron/reminders` | Daily digest for all users, called by Vercel Cron. Requires `Authorization: Bearer <CRON_SECRET>`; otherwise 404. |
+
+## Shared jobs
+
+Share links carry only four fields (company name, company website, job title, job posting URL) and expire after 30 days. Only a SHA-256 hash of each link token is stored. All endpoints require sign-in.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/applications/:id/share` | Creates a link for one of your applications. Returns `{ url, expiresAt }` (30 per hour). |
+| GET | `/shares/:token` | `{ job, sharedBy, isOwner, expiresAt, response, existingApplication }`. 404 if invalid or expired. |
+| POST | `/shares/:token/accept` | Adds the job to your applications with status `saved`. Returns `{ application: { _id } }`; 409 with `duplicateId` if you already track it; 400 for your own link. |
+| POST | `/shares/:token/decline` | Records that you declined. |
+| GET | `/shares/inbox` | Jobs friends sent you: `{ items: [{ _id, job, message, sharedBy, sharedAt, response, existingApplication }] }` |
+| POST | `/shares/inbox/:id/accept` · `/decline` | Add or decline one job sent to you |
+| POST | `/shares/inbox/accept-all` | Adds every unanswered job; returns `{ added, skipped }` |
+
+## Friends
+
+Users can't be searched or listed. You add someone with their **friend code**, which they share themselves.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/friends` | `{ myCode, friends, incoming, outgoing }`. Pending outgoing requests show only the name. |
+| GET | `/friends/summary` | `{ requests, shared }` counts for the sidebar badge |
+| POST | `/friends` | `{ code }` sends a request (20/hour). Input is case and dash insensitive. If they already asked you, it accepts. |
+| POST | `/friend-code/regenerate` | New code; the old one stops working |
+| POST | `/friends/:id/accept` | Recipient accepts a request |
+| DELETE | `/friends/:id` | Decline, cancel or unfriend |
+| POST | `/friends/send-jobs` | `{ applicationIds (1–25), friendIds (1–20), message? }` sends your jobs to accepted friends (in-app plus one email each). 20/hour. |
+
