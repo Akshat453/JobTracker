@@ -88,7 +88,7 @@ export function writePdfReport(stream, { user, range, analytics, resumes, source
   const t = analytics.totals;
   heading('Summary');
   const kpis = [
-    ['Applications', t.total], ['Interviews', t.interviews], ['Offers', t.offers], ['Rejections', t.rejections],
+    ['Applications tracked', t.total], ['Applications sent', t.submitted], ['Interviews', t.interviews], ['Offers', t.offers], ['Rejections', t.rejections],
     ['Interview rate', `${t.interviewRate}%`], ['Offer rate', `${t.offerRate}%`], ['Rejection rate', `${t.rejectionRate}%`],
     ['Avg. days to interview', t.avgDaysToInterview ?? '—'],
   ];
@@ -99,7 +99,7 @@ export function writePdfReport(stream, { user, range, analytics, resumes, source
     doc.fillColor(muted).font('Helvetica').fontSize(8).text(label, x + 10, y + 7, { width: boxW - 20 });
     doc.fillColor(ink).font('Helvetica-Bold').fontSize(14).text(String(value), x + 10, y + 19, { width: boxW - 20 });
   });
-  doc.y = startY + 96; doc.x = 48;
+  doc.y = startY + Math.ceil(kpis.length / 4) * 46 + 4; doc.x = 48;
 
   heading('Applications by status');
   table([{ label: 'Status', w: 0.7 }, { label: 'Count', w: 0.3, align: 'right' }],
@@ -109,7 +109,7 @@ export function writePdfReport(stream, { user, range, analytics, resumes, source
   table([{ label: 'Month', w: 0.4 }, { label: 'Applied', w: 0.2, align: 'right' }, { label: 'Interviews', w: 0.2, align: 'right' }, { label: 'Offers', w: 0.2, align: 'right' }],
     analytics.monthly.filter((m) => m.applications).map((m) => [m.name, m.applications, m.interviews, m.offers]));
 
-  const perfCols = [{ label: 'Name', w: 0.4 }, { label: 'Apps', w: 0.12, align: 'right' }, { label: 'Interviews', w: 0.16, align: 'right' }, { label: 'Offers', w: 0.12, align: 'right' }, { label: 'Interview %', w: 0.2, align: 'right' }];
+  const perfCols = [{ label: 'Name', w: 0.4 }, { label: 'Sent', w: 0.12, align: 'right' }, { label: 'Interviews', w: 0.16, align: 'right' }, { label: 'Offers', w: 0.12, align: 'right' }, { label: 'Interview %', w: 0.2, align: 'right' }];
   const perfRows = (list) => list.filter((r) => r.applications).map((r) => [r.version ? `${r.name} (${r.version})` : r.name, r.applications, r.interviews, r.offers, `${r.interviewRate}%`]);
 
   heading('Sources');

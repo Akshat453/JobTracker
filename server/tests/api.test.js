@@ -8,6 +8,7 @@ import { env } from '../src/config/env.js';
 import { MongoRateLimitStore } from '../src/utils/mongoRateLimitStore.js';
 import { maybeRunReminderNotifications, runReminderNotifications } from '../src/services/notifier.js';
 import { senderHeaders } from '../src/services/mailer.js';
+import { dayKeyFn, safeTimeZone, weeklyActivity } from '../src/services/analyticsService.js';
 import { SharedJob as SharedJobModel, migrateShareRetention } from '../src/models/SharedJob.js';
 import { companyKey, jobKeys, postingKey, sameJob, titleKey } from '../src/utils/jobMatch.js';
 
@@ -431,6 +432,65 @@ describe('analytics', () => {
     });
     assert.equal(pdf.status, 200);
     assert.equal(pdf.body.subarray(0, 4).toString(), '%PDF');
+  });
+
+  test('calendar days follow the user time zone; picked dates stay on their day', () => {
+    const ist = dayKeyFn('Asia/Kolkata');
+    assert.equal(ist('2026-11-07T20:00:00Z'), '2026-11-08', '1:30 am IST on Sunday is Sunday, not Saturday');
+    assert.equal(ist('2026-11-07T00:00:00Z'), '2026-11-07', 'a date picked in a date field keeps its day');
+    assert.equal(dayKeyFn('America/New_York')('2026-11-08T03:00:00Z'), '2026-11-07');
+    assert.equal(safeTimeZone('Not/AZone'), null);
+    assert.equal(safeTimeZone('Asia/Kolkata'), 'Asia/Kolkata');
+  });
+
+  test('weekly buckets run Sunday to Saturday and count only sent applications', () => {
+    const app = (day, submitted = true) => ({ _day: day, _submitted: submitted });
+    const weeks = weeklyActivity([app('2026-11-08'), app('2026-11-14'), app('2026-11-07'), app('2026-11-10', false), app('2026-08-01')], 12, '2026-11-11');
+    assert.equal(weeks.length, 12);
+    assert.equal(weeks.at(-1).start, '2026-11-08');
+    assert.equal(weeks.at(-1).name, 'Nov 8');
+    assert.match(weeks.at(-1).range, /Nov 8 – Nov 14 \(this week\)/);
+    assert.equal(weeks.at(-1).applications, 2, 'Sun 8 and Sat 14; the saved job on the 10th is not counted');
+    assert.equal(weeks.at(-2).applications, 1, 'Sat 7 is the previous week');
+    assert.equal(weeks[0].start, '2026-08-23');
+    assert.equal(weeks.reduce((n, w) => n + w.applications, 0), 3, 'older than 12 weeks is left out');
+  });
+
+  test('saved jobs are not "sent"; a job applied to later counts from when it was applied', async () => {
+    const reg = await api().post('/api/auth/register').send({ name: 'Ana Lytics', email: 'ana@example.com', password: 'password123' });
+    const auth = (r) => r.set('Authorization', `Bearer ${reg.body.token}`);
+    const today = new Date().toISOString().slice(0, 10);
+    const create = (body) => auth(api().post('/api/applications')).send({ company: { name: `Co ${Math.random()}` }, jobTitle: 'Engineer', ...body });
+    await create({ status: 'applied', applicationDate: today });
+    await create({ status: 'saved', applicationDate: today });
+    await create({ status: 'saved', applicationDate: today });
+    // Saved long ago, applied today: counts today, not on the day it was saved.
+    const old = (await create({ status: 'saved', applicationDate: '2024-01-15' })).body.application;
+    await auth(api().put(`/api/applications/${old._id}`)).send({ status: 'applied' });
+
+    const ov = (await auth(api().get('/api/analytics/overview?tz=Asia/Kolkata'))).body;
+    assert.equal(ov.stats.total, 4);
+    assert.equal(ov.stats.saved, 2);
+    const sentThisWeek = ov.activity.at(-1).applications;
+    assert.ok(sentThisWeek === 2 || (new Date().getUTCDay() === 0 && sentThisWeek >= 1), `2 sent this week, got ${sentThisWeek}`);
+    assert.equal(ov.activity.reduce((n, w) => n + w.applications, 0), 2, 'saved jobs are not counted');
+    assert.equal(ov.monthly.at(-1).applications, 2);
+    assert.equal(ov.stats.thisMonth, 2);
+    // A bad tz is ignored rather than breaking the page.
+    assert.equal((await auth(api().get('/api/analytics/overview?tz=%3Cscript%3E'))).status, 200);
+
+    // Performance tables count sent applications, matching their rates.
+    const src = (await auth(api().get('/api/analytics/sources'))).body.sources;
+    assert.equal(src[0].applications, 2);
+    assert.equal(src[0].tracked, 4);
+  });
+
+  test('a date range also limits the interview charts', async () => {
+    const all = (await authA(api().get('/api/analytics/applications'))).body;
+    assert.ok(all.interviews.total > 0);
+    const none = (await authA(api().get('/api/analytics/applications?from=2000-01-01&to=2000-12-31'))).body;
+    assert.equal(none.interviews.total, 0);
+    assert.equal(none.interviews.byType.length, 0);
   });
 });
 

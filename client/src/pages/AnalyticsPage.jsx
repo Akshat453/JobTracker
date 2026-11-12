@@ -28,7 +28,7 @@ function PerformanceTable({ rows, nameLabel }) {
         <thead>
           <tr className="border-b border-border text-left text-xs text-muted">
             <th className="px-5 py-2 font-medium">{nameLabel}</th>
-            <th className="px-3 py-2 text-right font-medium">Apps</th>
+            <th className="px-3 py-2 text-right font-medium" title="Applications sent (saved jobs not counted)">Sent</th>
             <th className="px-3 py-2 text-right font-medium">Interviews</th>
             <th className="px-3 py-2 text-right font-medium">Offers</th>
             <th className="px-3 py-2 font-medium">Interview rate</th>
@@ -128,7 +128,7 @@ export default function AnalyticsPage() {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
-            <Card title="Applications by month" className="lg:col-span-2">
+            <Card title="Applications by month" description="Applications sent each month, and how many of them led to interviews and offers" className="lg:col-span-2">
               <VBarChart data={data.apps.monthly} height={280} bars={[
                 { key: 'applications', label: 'Applications' },
                 { key: 'interviews', label: 'Interviews', color: '#8b5cf6' },

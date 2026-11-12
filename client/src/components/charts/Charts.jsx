@@ -69,7 +69,8 @@ export function VBarChart({ data, bars, height = 260, stacked }) {
         <CartesianGrid {...grid} />
         <XAxis dataKey="name" {...axis} />
         <YAxis {...axis} allowDecimals={false} />
-        <Tooltip {...tooltip} />
+        {/* Rows can carry a longer `range` label (e.g. "Nov 8 – Nov 14") for the tooltip. */}
+        <Tooltip {...tooltip} labelFormatter={(label, payload) => payload?.[0]?.payload?.range || label} />
         {bars.length > 1 && <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12 }} />}
         {bars.map((b, i) => (
           <Bar key={b.key} dataKey={b.key} name={b.label} fill={b.color || CHART_COLORS[i]} radius={stacked ? 0 : [4, 4, 0, 0]} stackId={stacked ? 'a' : undefined} maxBarSize={32} />

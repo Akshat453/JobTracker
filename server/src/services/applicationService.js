@@ -151,6 +151,7 @@ export async function createApplication(userId, body, { force = false } = {}) {
 
   const status = body.status || 'applied';
   const appliedAt = body.applicationDate || new Date();
+  app.applicationDate = appliedAt; // one timestamp for the date and the first history entry
   app.status = status;
   app.lastUpdateDate = body.lastUpdateDate || new Date();
   app.statusHistory = [{ status, from: null, changedAt: appliedAt, note: body.statusNote || 'Application created' }];

@@ -10,7 +10,7 @@ import { useToast } from '../context/ToastContext.jsx';
 import { errorMessage } from '../api/client.js';
 import { PageHeader, Card, Button, Skeleton, SkeletonRows, EmptyState, ErrorState, StatusBadge, CompanyLogo } from '../components/ui/index.js';
 import { StatCard } from '../components/applications/StatCard.jsx';
-import { AreaTrend, DonutChart, HBarChart, VBarChart, statusColor } from '../components/charts/Charts.jsx';
+import { DonutChart, HBarChart, VBarChart, statusColor } from '../components/charts/Charts.jsx';
 import { fmtShort, fmtTime, relativeDay, timeAgo, cn } from '../lib/format.js';
 
 const STAT_DEFS = [
@@ -88,8 +88,8 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card title="Application activity" description="Applications sent per week, last 12 weeks" className="lg:col-span-2">
-          <AreaTrend data={activity} height={240} />
+        <Card title="Application activity" description="Applications sent per week (Sun–Sat), last 12 weeks. Saved jobs you haven't applied to aren't counted." className="lg:col-span-2">
+          <VBarChart data={activity} height={240} bars={[{ key: 'applications', label: 'Applications sent' }]} />
         </Card>
         <Card title="By status"><DonutChart data={byStatus} colorFor={statusColor} height={220} /></Card>
       </div>
@@ -162,7 +162,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <Card title="Monthly applications" description="Last 6 months" className="lg:col-span-1">
+        <Card title="Monthly applications" description="Sent per month, last 6 months" className="lg:col-span-1">
           <VBarChart data={monthly} height={220} bars={[{ key: 'applications', label: 'Applied' }, { key: 'interviews', label: 'Interviews', color: '#10b981' }]} />
         </Card>
         <Card title="By company" description="Top companies"><HBarChart data={byCompany} /></Card>

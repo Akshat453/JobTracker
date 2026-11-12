@@ -56,11 +56,13 @@ export const remindersApi = {
   remove: (id) => data(api.delete(`/reminders/${id}`)),
 };
 
+// Charts group by calendar day in the browser's time zone.
+const tz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined; } catch { return undefined; } };
 export const analyticsApi = {
-  overview: () => data(api.get('/analytics/overview')),
-  applications: (params) => data(api.get('/analytics/applications', { params })),
-  resumes: (params) => data(api.get('/analytics/resumes', { params })),
-  sources: (params) => data(api.get('/analytics/sources', { params })),
+  overview: () => data(api.get('/analytics/overview', { params: { tz: tz() } })),
+  applications: (params) => data(api.get('/analytics/applications', { params: { ...params, tz: tz() } })),
+  resumes: (params) => data(api.get('/analytics/resumes', { params: { ...params, tz: tz() } })),
+  sources: (params) => data(api.get('/analytics/sources', { params: { ...params, tz: tz() } })),
 };
 
 export const notificationsApi = {
