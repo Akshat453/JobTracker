@@ -9,6 +9,7 @@ import { MongoRateLimitStore } from '../src/utils/mongoRateLimitStore.js';
 import { maybeRunReminderNotifications, runReminderNotifications } from '../src/services/notifier.js';
 import { senderHeaders } from '../src/services/mailer.js';
 import { dayKeyFn, safeTimeZone, weeklyActivity } from '../src/services/analyticsService.js';
+import { cleanupOrphanAutoStatuses } from '../src/services/applicationService.js';
 import { SharedJob as SharedJobModel, migrateShareRetention } from '../src/models/SharedJob.js';
 import { companyKey, jobKeys, postingKey, sameJob, titleKey } from '../src/utils/jobMatch.js';
 
@@ -401,6 +402,93 @@ describe('interviews & reminders', () => {
     assert.equal(await run(new Date(t0)), 0); // due in 3 h, lead time 2 h: not yet
     assert.equal(await run(new Date(t0 + 1.5 * 3600e3)), 1); // now due in 1.5 h: emailed
     assert.equal(await run(new Date(t0 + 1.6 * 3600e3)), 0); // never twice
+  });
+});
+
+describe('deleting an accidentally added interview', () => {
+  const newApp = async (status = 'applied') => (await authB(api().post('/api/applications')).send({
+    company: { name: `Undo Co ${Math.random()}` }, jobTitle: 'Engineer', status, applicationDate: '2026-11-02',
+  })).body.application._id;
+  const addIv = (application, type = 'Technical') => authB(api().post('/api/interviews')).send({ application, roundName: 'Round', type, date: '2099-01-01', time: '10:00' });
+  const get = async (id) => (await authB(api().get(`/api/applications/${id}`))).body.application;
+
+  test('adding then deleting an interview restores the status and cleans the history', async () => {
+    const id = await newApp();
+    const iv = (await addIv(id)).body;
+    assert.equal(iv.applicationStatus, 'interview_scheduled');
+    const before = await get(id);
+    assert.equal(String(before.statusHistory.at(-1).interview), iv.interview._id);
+
+    const del = await authB(api().delete(`/api/interviews/${iv.interview._id}`));
+    assert.equal(del.body.statusReverted, true);
+    assert.equal(del.body.applicationStatus, 'applied');
+    const after = await get(id);
+    assert.equal(after.status, 'applied');
+    assert.deepEqual(after.statusHistory.map((h) => h.status), ['applied']);
+    assert.ok(after.activity.some((a) => a.type === 'status_reverted'));
+
+    const overview = (await authB(api().get('/api/analytics/applications'))).body;
+    assert.ok(!overview.byStatus.some((st) => st.key === 'interview_scheduled' && st.count > 0));
+  });
+
+  test('another interview still there keeps the status; removing the last one reverts it', async () => {
+    const id = await newApp();
+    const a = (await addIv(id)).body.interview;
+    const b = (await addIv(id)).body.interview;
+    assert.equal((await authB(api().delete(`/api/interviews/${a._id}`))).body.statusReverted, false);
+    let app = await get(id);
+    assert.equal(app.status, 'interview_scheduled');
+    assert.equal(String(app.statusHistory.at(-1).interview), b._id, 'credited to the remaining interview');
+    assert.equal((await authB(api().delete(`/api/interviews/${b._id}`))).body.statusReverted, true);
+    app = await get(id);
+    assert.equal(app.status, 'applied');
+  });
+
+  test('a later manual status change is kept; only the automatic step leaves the history', async () => {
+    const id = await newApp();
+    const iv = (await addIv(id)).body.interview;
+    await authB(api().patch(`/api/applications/${id}/status`)).send({ status: 'rejected' });
+    await authB(api().delete(`/api/interviews/${iv._id}`));
+    const app = await get(id);
+    assert.equal(app.status, 'rejected');
+    assert.deepEqual(app.statusHistory.map((h) => [h.from, h.status]), [[null, 'applied'], ['applied', 'rejected']]);
+  });
+
+  test('assessments are handled the same way, separately from interviews', async () => {
+    const id = await newApp();
+    const oa = (await addIv(id, 'Online Assessment')).body;
+    assert.equal(oa.applicationStatus, 'assessment_pending');
+    await authB(api().delete(`/api/interviews/${oa.interview._id}`));
+    assert.equal((await get(id)).status, 'applied');
+  });
+
+  test('removing the interview in the application form also reverts', async () => {
+    const id = await newApp();
+    await addIv(id);
+    const app = await get(id);
+    const res = await authB(api().put(`/api/applications/${id}`)).send({ status: app.status, interviews: [] });
+    assert.equal(res.status, 200);
+    const after = await get(id);
+    assert.equal(after.status, 'applied');
+    assert.deepEqual(after.statusHistory.map((h) => h.status), ['applied']);
+  });
+
+  test('cleans up interviews deleted before this fix', async () => {
+    const id = await newApp();
+    // What an older deletion left behind: the automatic step, with no interview recorded on it and none left.
+    await mongoose.connection.db.collection('applications').updateOne(
+      { _id: new mongoose.Types.ObjectId(id) },
+      { $set: { status: 'interview_scheduled' }, $push: { statusHistory: { _id: new mongoose.Types.ObjectId(), status: 'interview_scheduled', from: 'applied', changedAt: new Date(), note: 'Auto-updated: interview added' } } },
+    );
+    // A real one with its interview still present must not be touched.
+    const keepId = await newApp();
+    await addIv(keepId);
+    await cleanupOrphanAutoStatuses();
+    assert.equal((await get(id)).status, 'applied');
+    assert.deepEqual((await get(id)).statusHistory.map((h) => h.status), ['applied']);
+    assert.equal((await get(keepId)).status, 'interview_scheduled');
+    await cleanupOrphanAutoStatuses(); // running again changes nothing
+    assert.equal((await get(keepId)).status, 'interview_scheduled');
   });
 });
 

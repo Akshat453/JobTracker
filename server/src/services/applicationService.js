@@ -71,18 +71,76 @@ function applyFields(app, body) {
   if (body.priority) app.priorityRank = PRIORITY_RANK[body.priority];
 }
 
-export function changeStatus(app, status, note, changedAt = new Date()) {
+export function changeStatus(app, status, note, changedAt = new Date(), { interview } = {}) {
   if (app.status === status) return false;
   const from = app.status;
   app.status = status;
   app.lastUpdateDate = changedAt;
-  app.statusHistory.push({ status, from, changedAt, note: note || undefined });
+  app.statusHistory.push({ status, from, changedAt, note: note || undefined, interview });
   app.log('status_changed', `Status changed from ${STATUS_LABELS[from]} to ${STATUS_LABELS[status]}`, { from, to: status, note });
   return true;
 }
 
+export const AUTO_STATUS_NOTES = { interview: 'Auto-updated: interview added', assessment: 'Auto-updated: assessment added' };
+const isAssessmentType = (type) => ['Online Assessment', 'Assignment'].includes(type);
+const kindOf = (iv) => (isAssessmentType(iv.type) ? 'assessment' : 'interview');
+
+/**
+ * Undoes the automatic status change an interview caused when it was added ("Applied" →
+ * "Interview scheduled"), now that it's been deleted. Nothing changes if another interview of the
+ * same kind still justifies the status. If the status was changed again later, that later change
+ * stays and only the automatic entry is removed from the history.
+ * `remaining` is the application's other interviews (anything with a `type`). Returns true if changed.
+ */
+export function undoAutoStatus(app, removed, remaining) {
+  const kind = kindOf(removed);
+  const sameKind = remaining.filter((iv) => kindOf(iv) === kind && String(iv._id) !== String(removed._id));
+  const history = app.statusHistory;
+  const tagged = (h) => h.interview && String(h.interview) === String(removed._id);
+  if (sameKind.length) {
+    // Still justified: credit the change to an interview that's still there.
+    for (const h of history) if (tagged(h) && sameKind[0]._id) h.interview = sameKind[0]._id;
+    return false;
+  }
+  // Entries from before interviews were recorded on them are matched by their note.
+  let idx = history.findIndex(tagged);
+  if (idx === -1) idx = history.findIndex((h) => !h.interview && h.note === AUTO_STATUS_NOTES[kind]);
+  if (idx <= 0) return false;
+  const entry = history[idx];
+  const next = history[idx + 1];
+  if (next) next.from = entry.from;
+  else app.status = entry.from || history[idx - 1].status;
+  history.splice(idx, 1);
+  app.log('status_reverted', next
+    ? `"${removed.roundName || 'Interview'}" removed, so its automatic status change was taken out of the history`
+    : `Status changed back to ${STATUS_LABELS[app.status]} because "${removed.roundName || 'the interview'}" was removed`);
+  return true;
+}
+
+/**
+ * One-time cleanup for interviews deleted before undoAutoStatus existed: removes automatic
+ * "interview added" status changes whose interview no longer exists. Safe to run on every start.
+ */
+export async function cleanupOrphanAutoStatuses() {
+  // Only entries from before interviews were recorded on them; newer ones are undone at deletion time.
+  const apps = await Application.find({
+    statusHistory: { $elemMatch: { note: { $in: Object.values(AUTO_STATUS_NOTES) }, interview: { $exists: false } } },
+  });
+  for (const app of apps) {
+    const interviews = await Interview.find({ application: app._id }).select('type').lean();
+    let changed = false;
+    for (const kind of ['interview', 'assessment']) {
+      if (interviews.some((iv) => kindOf(iv) === kind)) continue;
+      const fake = { _id: null, type: kind === 'assessment' ? 'Online Assessment' : 'Technical', roundName: 'A deleted interview' };
+      // Each pass removes one orphaned entry; repeat in case there are several.
+      while (undoAutoStatus(app, fake, interviews)) changed = true;
+    }
+    if (changed) await app.save();
+  }
+}
+
 /** Creates / updates / deletes interview rounds so they match the list sent by the form. */
-async function syncInterviews(app, rounds) {
+async function syncInterviews(app, rounds, { formSetsStatus = false } = {}) {
   if (!rounds) return;
   const existing = await Interview.find({ application: app._id, user: app.user });
   const keepIds = new Set(rounds.filter((r) => r._id).map((r) => String(r._id)));
@@ -92,6 +150,8 @@ async function syncInterviews(app, rounds) {
       await removeInterviewReminders(iv._id);
       await iv.deleteOne();
       app.log('interview_removed', `Interview "${iv.roundName}" removed`);
+      // Only undo if the form isn't also changing the status itself.
+      if (!formSetsStatus) undoAutoStatus(app, iv, rounds);
     }
   }
 
@@ -170,11 +230,11 @@ export async function updateApplication(app, body) {
   applyFields(app, body);
 
   const changedPaths = app.modifiedPaths().filter((p) => !p.includes('.') && !['activity', 'priorityRank'].includes(p));
-  if (body.status) changeStatus(app, body.status, body.statusNote);
+  const statusChanged = body.status ? changeStatus(app, body.status, body.statusNote) : false;
   if (!body.lastUpdateDate) app.lastUpdateDate = new Date();
   if (changedPaths.length) app.log('updated', 'Application details updated', { fields: changedPaths });
 
-  await syncInterviews(app, body.interviews);
+  await syncInterviews(app, body.interviews, { formSetsStatus: statusChanged });
   await app.save();
   await syncApplicationReminders(app);
   return app;

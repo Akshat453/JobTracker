@@ -1,5 +1,5 @@
 import {
-  Plus, ArrowRightLeft, Pencil, CalendarPlus, CalendarCheck, CalendarX, BellPlus, BellRing, FileText, StickyNote, Copy,
+  Plus, ArrowRightLeft, Pencil, CalendarPlus, CalendarCheck, CalendarX, BellPlus, BellRing, FileText, StickyNote, Copy, Undo2,
 } from 'lucide-react';
 import { StatusBadge } from '../ui/index.js';
 import { fmtDateTime, timeAgo, cn } from '../../lib/format.js';
@@ -24,7 +24,7 @@ export function StatusTimeline({ history = [] }) {
 }
 
 const ICON = {
-  created: Plus, status_changed: ArrowRightLeft, updated: Pencil, interview_added: CalendarPlus,
+  created: Plus, status_changed: ArrowRightLeft, status_reverted: Undo2, updated: Pencil, interview_added: CalendarPlus,
   interview_updated: CalendarCheck, interview_removed: CalendarX, reminder_added: BellPlus, reminder_completed: BellRing,
   resume_attached: FileText, note: StickyNote, duplicated: Copy,
 };

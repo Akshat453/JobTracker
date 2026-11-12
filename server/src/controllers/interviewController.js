@@ -3,7 +3,7 @@ import { ApiError } from '../utils/ApiError.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { assertObjectId, startOfDay } from '../utils/helpers.js';
 import { findWithApplication } from '../utils/withApplication.js';
-import { combineDateTime, changeStatus } from '../services/applicationService.js';
+import { combineDateTime, changeStatus, undoAutoStatus, AUTO_STATUS_NOTES } from '../services/applicationService.js';
 import { syncInterviewReminder, removeInterviewReminders } from '../services/reminderSync.js';
 
 const PRE_INTERVIEW = ['saved', 'applied', 'assessment_pending', 'assessment_completed', 'on_hold'];
@@ -35,9 +35,9 @@ export const createInterview = asyncHandler(async (req, res) => {
   // Move the application forward automatically when its first interview/assessment is scheduled.
   const isAssessment = ['Online Assessment', 'Assignment'].includes(iv.type);
   if (isAssessment && ['saved', 'applied'].includes(app.status)) {
-    changeStatus(app, 'assessment_pending', 'Auto-updated: assessment added');
+    changeStatus(app, 'assessment_pending', AUTO_STATUS_NOTES.assessment, new Date(), { interview: iv._id });
   } else if (!isAssessment && PRE_INTERVIEW.includes(app.status)) {
-    changeStatus(app, 'interview_scheduled', 'Auto-updated: interview added');
+    changeStatus(app, 'interview_scheduled', AUTO_STATUS_NOTES.interview, new Date(), { interview: iv._id });
   }
   await app.save();
   await syncInterviewReminder(iv, app);
@@ -63,9 +63,13 @@ export const deleteInterview = asyncHandler(async (req, res) => {
   const iv = await loadOwned(req);
   await removeInterviewReminders(iv._id);
   await iv.deleteOne();
-  await Application.updateOne(
-    { _id: iv.application },
-    { $push: { activity: { type: 'interview_removed', message: `Interview "${iv.roundName}" removed`, at: new Date() } } },
-  );
-  res.json({ message: 'Interview deleted' });
+  const app = await Application.findOne({ _id: iv.application, user: req.user._id });
+  let statusReverted = false;
+  if (app) {
+    app.log('interview_removed', `Interview "${iv.roundName}" removed`);
+    const remaining = await Interview.find({ application: app._id }).select('type').lean();
+    statusReverted = undoAutoStatus(app, iv, remaining);
+    await app.save();
+  }
+  res.json({ message: 'Interview deleted', applicationStatus: app?.status, statusReverted });
 });

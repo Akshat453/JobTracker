@@ -11,6 +11,9 @@ const statusHistorySchema = new mongoose.Schema(
     from: { type: String, enum: [...STATUSES, null], default: null },
     changedAt: { type: Date, default: Date.now },
     note: { type: String, trim: true, maxlength: 500 },
+    // Set when the change was made automatically by adding this interview, so deleting the
+    // interview can undo it.
+    interview: { type: ObjectId, ref: 'Interview' },
   },
   { _id: true },
 );
@@ -20,7 +23,7 @@ const activitySchema = new mongoose.Schema(
     type: {
       type: String,
       enum: ['created', 'updated', 'status_changed', 'interview_added', 'interview_updated', 'interview_removed',
-        'reminder_added', 'reminder_completed', 'resume_attached', 'note', 'duplicated'],
+        'reminder_added', 'reminder_completed', 'resume_attached', 'note', 'duplicated', 'status_reverted'],
       required: true,
     },
     message: { type: String, required: true },
