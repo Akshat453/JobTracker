@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { attachDatabasePool } from '@vercel/functions';
 import { env } from './env.js';
 import { migrateShareRetention } from '../models/SharedJob.js';
-import { cleanupOrphanAutoStatuses } from '../services/applicationService.js';
+import { cleanupOrphanAutoStatuses, cleanupStatusReversals } from '../services/applicationService.js';
 
 mongoose.set('strictQuery', true);
 
@@ -47,7 +47,11 @@ export async function connectDB(uri = env.mongoUri) {
       if (!migrated) {
         migrated = true;
         migrateShareRetention().catch((err) => console.error('[db] share history migration failed:', err.message));
-        cleanupOrphanAutoStatuses().catch((err) => console.error('[db] interview status cleanup failed:', err.message));
+        // One after the other: both can rewrite the same application's history.
+        cleanupOrphanAutoStatuses()
+          .catch((err) => console.error('[db] interview status cleanup failed:', err.message))
+          .then(() => cleanupStatusReversals())
+          .catch((err) => console.error('[db] status history cleanup failed:', err.message));
       }
       return mongoose.connection;
     })

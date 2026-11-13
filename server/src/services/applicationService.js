@@ -74,9 +74,20 @@ function applyFields(app, body) {
 export function changeStatus(app, status, note, changedAt = new Date(), { interview } = {}) {
   if (app.status === status) return false;
   const from = app.status;
+  const history = app.statusHistory;
+  const last = history[history.length - 1];
+  // Going straight back to the previous status undoes a mistaken change: "Saved → Applied → Saved"
+  // becomes just "Saved" instead of keeping the wrong step in the history.
+  if (!interview && history.length > 1 && last.status === from && last.from === status) {
+    history.pop();
+    app.status = status;
+    app.lastUpdateDate = changedAt;
+    app.log('status_reverted', `Status changed back to ${STATUS_LABELS[status]}; the change to ${STATUS_LABELS[from]} was removed from the history`, { from, to: status, note });
+    return true;
+  }
   app.status = status;
   app.lastUpdateDate = changedAt;
-  app.statusHistory.push({ status, from, changedAt, note: note || undefined, interview });
+  history.push({ status, from, changedAt, note: note || undefined, interview });
   app.log('status_changed', `Status changed from ${STATUS_LABELS[from]} to ${STATUS_LABELS[status]}`, { from, to: status, note });
   return true;
 }
@@ -115,6 +126,28 @@ export function undoAutoStatus(app, removed, remaining) {
     ? `"${removed.roundName || 'Interview'}" removed, so its automatic status change was taken out of the history`
     : `Status changed back to ${STATUS_LABELS[app.status]} because "${removed.roundName || 'the interview'}" was removed`);
   return true;
+}
+
+/** Drops "A → B → A" back-and-forth pairs from a status history. Returns the cleaned list. */
+export function collapseReversals(history) {
+  const out = [];
+  for (const entry of history) {
+    const last = out[out.length - 1];
+    if (out.length > 1 && last.from === entry.status && last.status === entry.from) out.pop();
+    else out.push(entry);
+  }
+  return out;
+}
+
+/** One-time cleanup for status changes that were undone before changeStatus collapsed them. */
+export async function cleanupStatusReversals() {
+  const apps = await Application.find({ 'statusHistory.2': { $exists: true } });
+  for (const app of apps) {
+    const cleaned = collapseReversals(app.statusHistory);
+    if (cleaned.length === app.statusHistory.length) continue;
+    app.statusHistory = cleaned;
+    await app.save();
+  }
 }
 
 /**

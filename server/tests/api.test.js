@@ -9,7 +9,7 @@ import { MongoRateLimitStore } from '../src/utils/mongoRateLimitStore.js';
 import { maybeRunReminderNotifications, runReminderNotifications } from '../src/services/notifier.js';
 import { senderHeaders } from '../src/services/mailer.js';
 import { dayKeyFn, safeTimeZone, weeklyActivity } from '../src/services/analyticsService.js';
-import { cleanupOrphanAutoStatuses } from '../src/services/applicationService.js';
+import { cleanupOrphanAutoStatuses, collapseReversals } from '../src/services/applicationService.js';
 import { SharedJob as SharedJobModel, migrateShareRetention } from '../src/models/SharedJob.js';
 import { companyKey, jobKeys, postingKey, sameJob, titleKey } from '../src/utils/jobMatch.js';
 
@@ -1000,5 +1000,48 @@ describe('serverless support', () => {
     const res = await api().get('/api/auth/config');
     assert.equal(res.body.maxUploadMb, env.maxUploadMb);
     assert.equal(res.headers['cache-control'], 'no-store');
+  });
+});
+
+describe('undoing a mistaken status change', () => {
+  const newApp = async (status = 'saved') => (await authB(api().post('/api/applications')).send({
+    company: { name: `Oops Co ${Math.random()}` }, jobTitle: 'Engineer', status,
+  })).body.application._id;
+  const setStatus = (id, status) => authB(api().patch(`/api/applications/${id}/status`)).send({ status });
+  const get = async (id) => (await authB(api().get(`/api/applications/${id}`))).body.application;
+
+  test('Saved → Applied → back to Saved leaves just Saved in the history', async () => {
+    const id = await newApp();
+    await setStatus(id, 'applied');
+    assert.equal((await setStatus(id, 'saved')).status, 200);
+    const app = await get(id);
+    assert.equal(app.status, 'saved');
+    assert.deepEqual(app.statusHistory.map((h) => h.status), ['saved']);
+    assert.ok(app.activity.some((a) => a.type === 'status_reverted'));
+  });
+
+  test('only the last step is undone; earlier real changes stay', async () => {
+    const id = await newApp();
+    await setStatus(id, 'applied');
+    await setStatus(id, 'rejected');
+    await setStatus(id, 'applied'); // rejected was the mistake
+    const app = await get(id);
+    assert.equal(app.status, 'applied');
+    assert.deepEqual(app.statusHistory.map((h) => h.status), ['saved', 'applied']);
+  });
+
+  test('moving to a different status is recorded normally', async () => {
+    const id = await newApp();
+    await setStatus(id, 'applied');
+    await setStatus(id, 'interview_scheduled');
+    await setStatus(id, 'rejected');
+    assert.deepEqual((await get(id)).statusHistory.map((h) => h.status), ['saved', 'applied', 'interview_scheduled', 'rejected']);
+  });
+
+  test('cleanup collapses back-and-forth steps already in a history', () => {
+    const h = (from, status) => ({ from, status });
+    const cleaned = collapseReversals([h(null, 'saved'), h('saved', 'applied'), h('applied', 'saved'), h('saved', 'applied'), h('applied', 'rejected')]);
+    assert.deepEqual(cleaned.map((e) => e.status), ['saved', 'applied', 'rejected']);
+    assert.deepEqual(collapseReversals([h(null, 'applied'), h('applied', 'saved')]).map((e) => e.status), ['applied', 'saved']);
   });
 });
