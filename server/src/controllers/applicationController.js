@@ -4,7 +4,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { assertObjectId } from '../utils/helpers.js';
 import { buildApplicationFilter, SORTS } from '../services/applicationQuery.js';
 import {
-  createApplication, updateApplication, deleteApplication, duplicateApplication, getApplicationDetail, changeStatus,
+  createApplication, importSavedJobs, updateApplication, deleteApplication, duplicateApplication, getApplicationDetail, changeStatus,
 } from '../services/applicationService.js';
 import { syncApplicationReminders } from '../services/reminderSync.js';
 import { applicationsToCsv } from '../services/exportService.js';
@@ -50,6 +50,16 @@ export const listApplications = asyncHandler(async (req, res) => {
 
   const total = result.total[0]?.count || 0;
   res.json({ items: result.items, page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) });
+});
+
+export const importCsv = asyncHandler(async (req, res) => {
+  const { rows, dryRun } = req.body;
+  const results = await importSavedJobs(req.user._id, rows, { dryRun });
+  const count = (st) => results.filter((r) => r.status === st).length;
+  res.status(dryRun ? 200 : 201).json({
+    dryRun: Boolean(dryRun), results,
+    summary: { added: dryRun ? 0 : count('new'), new: count('new'), duplicates: count('duplicate'), invalid: count('invalid') },
+  });
 });
 
 export const exportCsv = asyncHandler(async (req, res) => {

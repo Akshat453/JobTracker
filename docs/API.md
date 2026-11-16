@@ -98,6 +98,7 @@ Returns `201 { application }`, fully populated (`resume`, `documents`, `emailUse
 | POST | `/applications/:id/notes` | `{ message }`, adds a note to the activity timeline |
 | GET | `/applications/tags` | Distinct tags |
 | GET | `/applications/export/csv` | Same filters as the list, returns a CSV file |
+| POST | `/applications/import` | `{ rows: [{ company: { name, website? }, jobTitle, jobPostingUrl? }], dryRun? }` (1–300 rows; the browser parses the CSV). Adds each valid, new row as a Saved job; other fields are ignored. Returns `{ dryRun, results: [{ row, status: 'new'\|'duplicate'\|'invalid', message?, duplicateId?, inFile?, id? }], summary }`. `dryRun: true` saves nothing (preview). Limited to 30 per hour |
 
 Statuses: `saved, applied, assessment_pending, assessment_completed, interview_scheduled, interviewing, offer, accepted, rejected, on_hold, withdrawn`.
 

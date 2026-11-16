@@ -2,6 +2,7 @@ import { Application, EmailAccount, Interview, Resume, Reminder } from '../model
 import { ApiError } from '../utils/ApiError.js';
 import { STATUS_LABELS, PRIORITY_RANK } from '../utils/constants.js';
 import { jobKeys, sameJob } from '../utils/jobMatch.js';
+import { importRowSchema } from '../validators/schemas.js';
 import { syncApplicationReminders, syncInterviewReminder, removeInterviewReminders } from './reminderSync.js';
 
 const NESTED = ['company', 'salary', 'emailUsed', 'recruiter', 'referral'];
@@ -225,6 +226,78 @@ export async function duplicateFinder(userId, excludeId) {
 
 export async function findDuplicate(userId, body, excludeId) {
   return (await duplicateFinder(userId, excludeId))(body);
+}
+
+/**
+ * Adds jobs from a CSV as Saved applications with just company name, company website, job title and
+ * job posting link. Each row is validated on its own; rows matching a job you already track (or an
+ * earlier row in the same file) are skipped. With `dryRun` nothing is written: the result is the preview.
+ * Returns one result per row: { row, status: 'new' | 'duplicate' | 'invalid', message?, duplicateId?, id? }.
+ */
+const IMPORT_FIELD_LABELS = {
+  'company.name': 'Company name', 'company.website': 'Company website', jobTitle: 'Job title', jobPostingUrl: 'Job posting URL',
+};
+
+const SOURCE_HOSTS = [[/linkedin\./, 'LinkedIn'], [/naukri\./, 'Naukri'], [/wellfound\.|angel\.co/, 'Wellfound'], [/indeed\./, 'Indeed'], [/internshala\./, 'Internshala']];
+const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
+/** Where an imported job was found, from its posting link (the CSV has no source column). */
+function guessSource(job) {
+  const host = hostOf(job.jobPostingUrl);
+  if (!host) return 'Other';
+  const known = SOURCE_HOSTS.find(([re]) => re.test(host));
+  if (known) return known[1];
+  const site = hostOf(job.company.website);
+  return site && (host === site || host.endsWith(`.${site}`)) ? 'Company Website' : 'Other';
+}
+
+export async function importSavedJobs(userId, rows, { dryRun = false } = {}) {
+  const findExisting = await duplicateFinder(userId);
+  const seen = [];
+  const results = [];
+  const docs = [];
+  rows.forEach((raw, i) => {
+    const parsed = importRowSchema.safeParse(raw);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const field = IMPORT_FIELD_LABELS[issue.path.join('.')];
+      const message = field && !issue.message.startsWith(field) ? `${field}: ${issue.message}` : issue.message;
+      results.push({ row: i, status: 'invalid', message });
+      return;
+    }
+    const job = parsed.data;
+    const existing = findExisting(job);
+    if (existing) {
+      results.push({ row: i, status: 'duplicate', message: `Already tracked: ${existing.jobTitle} at ${existing.company.name}`, duplicateId: existing._id });
+      return;
+    }
+    const keys = jobKeys(job);
+    const earlier = seen.find((s) => sameJob(keys, s.keys));
+    if (earlier) {
+      results.push({ row: i, status: 'duplicate', inFile: true, message: `Same job as row ${earlier.row + 2}` }); // +2: header line, 1-based
+      return;
+    }
+    seen.push({ row: i, keys });
+    const result = { row: i, status: 'new' };
+    results.push(result);
+    if (dryRun) return;
+    const now = new Date();
+    const app = new Application({
+      user: userId,
+      company: { name: job.company.name, website: job.company.website || undefined },
+      jobTitle: job.jobTitle,
+      jobPostingUrl: job.jobPostingUrl || undefined,
+      source: guessSource(job),
+      status: 'saved',
+      applicationDate: now,
+      lastUpdateDate: now,
+      statusHistory: [{ status: 'saved', from: null, changedAt: now, note: 'Imported from CSV' }],
+    });
+    app.log('created', `Application imported from CSV with status ${STATUS_LABELS.saved}`);
+    docs.push(app);
+    result.id = app._id;
+  });
+  if (docs.length) await Application.insertMany(docs);
+  return results;
 }
 
 export async function createApplication(userId, body, { force = false } = {}) {

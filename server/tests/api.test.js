@@ -1045,3 +1045,68 @@ describe('undoing a mistaken status change', () => {
     assert.deepEqual(collapseReversals([h(null, 'applied'), h('applied', 'saved')]).map((e) => e.status), ['applied', 'saved']);
   });
 });
+
+describe('importing saved jobs from a CSV', () => {
+  const run = (rows, dryRun) => authB(api().post('/api/applications/import')).send({ rows, ...(dryRun ? { dryRun: true } : {}) });
+  const tag = Math.random().toString(36).slice(2, 8);
+  const row = (n, extra = {}) => ({ company: { name: `Csv Co ${tag} ${n}`, website: `csv${n}.example.com` }, jobTitle: 'Backend Engineer', jobPostingUrl: `https://jobs.example.com/${tag}/${n}`, ...extra });
+
+  test('a dry run previews without saving anything', async () => {
+    const res = await run([row(1), row(2)], true);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.summary, { added: 0, new: 2, duplicates: 0, invalid: 0 });
+    const list = await authB(api().get('/api/applications')).query({ search: `Csv Co ${tag}` });
+    assert.equal(list.body.total, 0);
+  });
+
+  test('adds new rows as Saved with only the four fields', async () => {
+    const res = await run([row(1), row(2)]);
+    assert.equal(res.status, 201);
+    assert.equal(res.body.summary.added, 2);
+    const app = (await authB(api().get(`/api/applications/${res.body.results[0].id}`))).body.application;
+    assert.equal(app.status, 'saved');
+    assert.equal(app.company.name, `Csv Co ${tag} 1`);
+    assert.match(app.company.website, /^https:\/\/csv1\.example\.com\/?$/);
+    assert.equal(app.jobPostingUrl, `https://jobs.example.com/${tag}/1`);
+    assert.deepEqual(app.statusHistory.map((h) => h.status), ['saved']);
+  });
+
+  test('skips jobs already tracked, repeats inside the file, and invalid rows', async () => {
+    const res = await run([
+      row(1), // imported above
+      row(3), row(3, { company: { name: `Csv Co ${tag} 3 Inc.` } }), // same posting link twice
+      { company: { name: '' }, jobTitle: 'No company' },
+      row(4, { jobPostingUrl: 'not a url at all' }),
+    ]);
+    assert.equal(res.status, 201);
+    assert.deepEqual(res.body.results.map((r) => r.status), ['duplicate', 'new', 'duplicate', 'invalid', 'invalid']);
+    assert.match(res.body.results[2].message, /row 3/);
+    assert.equal(res.body.summary.added, 1);
+  });
+
+  test('ignores extra fields and rejects oversized files', async () => {
+    const res = await run([{ ...row(5), status: 'offer', user: '000000000000000000000000', notes: 'x' }]);
+    const app = (await authB(api().get(`/api/applications/${res.body.results[0].id}`))).body.application;
+    assert.equal(app.status, 'saved');
+    assert.ok(!app.notes);
+    const big = await run(Array.from({ length: 301 }, (_, i) => row(100 + i)));
+    assert.equal(big.status, 400);
+  });
+
+  test('needs a signed-in user', async () => {
+    assert.equal((await api().post('/api/applications/import').send({ rows: [row(9)] })).status, 401);
+  });
+});
+
+test('CSV import picks the source from the posting link', async () => {
+  const t = Math.random().toString(36).slice(2, 8);
+  const rows = [
+    { company: { name: `Src ${t} A` }, jobTitle: 'X', jobPostingUrl: `https://www.linkedin.com/jobs/view/${Date.now()}` },
+    { company: { name: `Src ${t} B`, website: `b${t}.com` }, jobTitle: 'X', jobPostingUrl: `https://careers.b${t}.com/1` },
+    { company: { name: `Src ${t} C` }, jobTitle: 'X' },
+  ];
+  const res = await authB(api().post('/api/applications/import')).send({ rows });
+  const sources = [];
+  for (const r of res.body.results) sources.push((await authB(api().get(`/api/applications/${r.id}`))).body.application.source);
+  assert.deepEqual(sources, ['LinkedIn', 'Company Website', 'Other']);
+});

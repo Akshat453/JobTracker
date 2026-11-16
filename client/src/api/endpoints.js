@@ -21,6 +21,7 @@ export const applicationsApi = {
   duplicate: (id) => data(api.post(`/applications/${id}/duplicate`)),
   addNote: (id, message) => data(api.post(`/applications/${id}/notes`, { message })),
   tags: () => data(api.get('/applications/tags')),
+  importCsv: (rows, { dryRun } = {}) => data(api.post('/applications/import', { rows, ...(dryRun ? { dryRun: true } : {}) })),
 };
 
 export const resumesApi = {

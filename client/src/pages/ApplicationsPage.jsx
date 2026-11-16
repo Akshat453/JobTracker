@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Table2, LayoutGrid, KanbanSquare, Download, Briefcase, SearchX, Send, X } from 'lucide-react';
+import { Plus, Table2, LayoutGrid, KanbanSquare, Download, Upload, Briefcase, SearchX, Send, X } from 'lucide-react';
 import { applicationsApi } from '../api/endpoints.js';
 import { downloadFile, errorMessage } from '../api/client.js';
 import { useAsync } from '../hooks/useAsync.js';
@@ -12,6 +12,7 @@ import { ApplicationFilters, FILTER_KEYS } from '../components/applications/Appl
 import { ApplicationTable, ApplicationCards } from '../components/applications/ApplicationViews.jsx';
 import { KanbanBoard } from '../components/applications/KanbanBoard.jsx';
 import { SendToFriendsModal } from '../components/friends/SendToFriendsModal.jsx';
+import { ImportCsvModal } from '../components/applications/ImportCsvModal.jsx';
 
 const VIEW_KEY = 'jt-app-view';
 const readView = () => { try { return localStorage.getItem(VIEW_KEY) || 'table'; } catch { return 'table'; } };
@@ -38,6 +39,7 @@ export default function ApplicationsPage() {
   // Selected jobs (kept while paging or filtering) for "Send to friends".
   const [selected, setSelected] = useState(() => new Map());
   const [sendOpen, setSendOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const selection = useMemo(() => ({
     has: (id) => selected.has(id),
     toggle: (a, on) => setSelected((m) => { const n = new Map(m); if (on) n.set(a._id, a); else n.delete(a._id); return n; }),
@@ -70,6 +72,7 @@ export default function ApplicationsPage() {
               { value: 'cards', label: 'Cards', icon: LayoutGrid },
               { value: 'kanban', label: 'Kanban', icon: KanbanSquare },
             ]} />
+            <Button variant="secondary" icon={Upload} onClick={() => setImportOpen(true)}>Import CSV</Button>
             <Button variant="secondary" icon={Download} onClick={exportCsv}>Export CSV</Button>
           </>
         )}
@@ -111,6 +114,9 @@ export default function ApplicationsPage() {
           </div>
         </div>
       )}
+      {/* After importing, show the Saved jobs (where the new ones are). */}
+      <ImportCsvModal open={importOpen} onClose={() => setImportOpen(false)}
+        onImported={() => (filters.status === 'saved' ? reload() : setFilters({ view: filters.view, status: 'saved' }))} />
       <SendToFriendsModal open={sendOpen} onClose={() => setSendOpen(false)} jobs={[...selected.values()]} onSent={() => setSelected(new Map())} />
     </div>
   );

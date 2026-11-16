@@ -149,6 +149,19 @@ const applicationFields = {
 };
 
 export const applicationCreateSchema = z.object(applicationFields);
+
+// ---------- CSV import (Saved jobs: just these four fields) ----------
+export const IMPORT_MAX_ROWS = 300;
+export const importRowSchema = z.object({
+  company: z.object({ name: applicationFields.company.shape.name, website: optUrl }),
+  jobTitle: applicationFields.jobTitle,
+  jobPostingUrl: optUrl,
+});
+// Rows are checked one by one in the service, so one bad row doesn't block the rest.
+export const importSchema = z.object({
+  rows: z.array(z.unknown()).min(1, 'The file has no jobs').max(IMPORT_MAX_ROWS, `Import at most ${IMPORT_MAX_ROWS} jobs at a time`),
+  dryRun: z.boolean().optional(),
+});
 export const applicationUpdateSchema = z
   .object({ ...applicationFields, company: applicationFields.company.partial() })
   .partial();

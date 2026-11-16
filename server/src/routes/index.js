@@ -42,6 +42,7 @@ const shareLimiter = limiter('share', 60, 30, 'Too many share links created. Try
 const shareOpenLimiter = limiter('share-open', 15, 100, 'Too many requests, please slow down', { shared: true });
 const friendRequestLimiter = limiter('friend-request', 60, 20, 'Too many friend requests. Try again later.', { shared: true });
 const sendJobsLimiter = limiter('send-jobs', 60, 20, 'Too many jobs sent. Try again later.', { shared: true });
+const importLimiter = limiter('import', 60, 30, 'Too many imports. Try again later.', { shared: true });
 const mailLimiter = limiter('mail', 60, 5, 'Too many emails requested. Try again later.', { shared: true });
 
 router.use(apiLimiter);
@@ -66,6 +67,7 @@ router.use(requireAuth);
 // ---- Applications
 router.get('/applications', validate(S.applicationQuerySchema, 'query'), apps.listApplications);
 router.get('/applications/export/csv', validate(S.applicationQuerySchema, 'query'), apps.exportCsv);
+router.post('/applications/import', importLimiter, validate(S.importSchema), apps.importCsv);
 router.get('/applications/tags', apps.listTags);
 router.post('/applications', validate(S.applicationCreateSchema), apps.createApp);
 router.get('/applications/:id', apps.getApplication);
