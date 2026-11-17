@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { Reminder, User } from '../models/index.js';
 import { env } from '../config/env.js';
 import { sendMail, isMailConfigured } from './mailer.js';
+import { sendText, sendTemplate, isWhatsAppConfigured } from './whatsapp/client.js';
 
 const TYPE_PREF = { interview: 'interviewReminders', follow_up: 'followUpReminders', deadline: 'deadlineReminders', custom: 'followUpReminders' };
 
@@ -78,6 +79,62 @@ export async function runReminderNotifications(now = new Date(), { userId } = {}
   return sent;
 }
 
+const WINDOW_MS = 24 * 3_600_000; // WhatsApp allows free-form messages for 24 h after the user's last one
+const fmtShort = (date, timeZone) => {
+  try { return date.toLocaleString('en-US', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone }); } catch { return date.toISOString(); }
+};
+
+/**
+ * Sends due reminders on WhatsApp to users who connected it. Reminders set from WhatsApp ("remind me
+ * … at 5pm") and other custom ones go out at their time; interview, follow-up and deadline reminders
+ * go out within the user's lead time, like the emails. Each reminder is sent once (whatsappedAt).
+ * Outside WhatsApp's 24-hour window only an approved template may be sent; without one configured,
+ * those reminders wait until the user next messages the bot. Returns the number of users messaged.
+ */
+export async function runWhatsAppReminders(now = new Date(), { userId } = {}) {
+  if (!isWhatsAppConfigured()) return 0;
+  const users = await User.find({ 'whatsapp.phone': { $type: 'string' }, 'whatsapp.remindersEnabled': { $ne: false }, ...(userId ? { _id: userId } : {}) });
+  const template = env.whatsapp.reminderTemplate;
+  let sent = 0;
+  for (const user of users) {
+    try {
+      const prefs = user.notificationPrefs || {};
+      const timeZone = prefs.timeZone || env.defaultTimeZone;
+      const horizon = new Date(now.getTime() + (prefs.leadTimeHours || 24) * 3_600_000);
+      const candidates = await Reminder.find({ user: user._id, completed: false, whatsappedAt: null, dueDate: { $lte: horizon } })
+        .populate('application', 'company.name jobTitle').sort({ dueDate: 1 });
+      // Long-past reminders (e.g. from before WhatsApp was connected) are skipped, not sent late.
+      const stale = candidates.filter((r) => r.dueDate < new Date(now.getTime() - WINDOW_MS));
+      if (stale.length) await Reminder.updateMany({ _id: { $in: stale.map((r) => r._id) } }, { whatsappedAt: now });
+      const due = candidates.filter((r) => !stale.includes(r)
+        && (r.type === 'custom' ? r.dueDate <= now : prefs[TYPE_PREF[r.type]] !== false));
+      if (!due.length) continue;
+
+      const line = (r) => `${r.title} (${r.dueDate < now ? 'was due' : 'due'} ${fmtShort(r.dueDate, timeZone)})${r.application?.company?.name ? ` · ${r.application.company.name}` : ''}`;
+      const inWindow = user.whatsapp.lastInboundAt && now - user.whatsapp.lastInboundAt < WINDOW_MS;
+      if (inWindow) {
+        await sendText(user.whatsapp.phone, `⏰ ${due.length === 1 ? 'Reminder' : 'Reminders'}:\n\n${due.map((r) => `• ${line(r)}`).join('\n')}\n\nReply *reminders* to see all.`);
+      } else if (template) {
+        await sendTemplate(user.whatsapp.phone, template, [due.map(line).join('; ')]);
+      } else {
+        continue; // can't message them now; tried again on the next run
+      }
+      await Reminder.updateMany({ _id: { $in: due.map((r) => r._id) } }, { whatsappedAt: now });
+      sent += 1;
+    } catch (e) {
+      console.error(`[notifier] WhatsApp reminders for user ${user._id} failed: ${e.message}`);
+    }
+  }
+  return sent;
+}
+
+/** Email digests and WhatsApp reminders. */
+export async function runAllNotifications(now = new Date()) {
+  const emails = await runReminderNotifications(now);
+  const whatsapp = await runWhatsAppReminders(now);
+  return { emails, whatsapp };
+}
+
 /**
  * Runs the digest for everyone, but at most once per `everyMs` across all server instances. Called
  * in the background on ordinary API traffic, so emails also go out on time when the external hourly
@@ -85,7 +142,7 @@ export async function runReminderNotifications(now = new Date(), { userId } = {}
  * instances never both run it.
  */
 export async function maybeRunReminderNotifications({ now = new Date(), everyMs = 10 * 60_000 } = {}) {
-  if (!isMailConfigured() && !env.isTest) return false;
+  if (!isMailConfigured() && !isWhatsAppConfigured() && !env.isTest) return false;
   const runs = mongoose.connection.db.collection('jobruns');
   try {
     await runs.updateOne(
@@ -97,13 +154,13 @@ export async function maybeRunReminderNotifications({ now = new Date(), everyMs 
     if (e.code === 11000) return false; // another request ran it recently
     throw e;
   }
-  await runReminderNotifications(now);
+  await runAllNotifications(now);
   return true;
 }
 
 export function startReminderScheduler() {
   if (!env.reminderIntervalMin || env.isTest) return null;
-  const tick = () => runReminderNotifications().catch((e) => console.error('[notifier]', e.message));
+  const tick = () => runAllNotifications().catch((e) => console.error('[notifier]', e.message));
   setTimeout(tick, 10_000);
   return setInterval(tick, env.reminderIntervalMin * 60_000);
 }

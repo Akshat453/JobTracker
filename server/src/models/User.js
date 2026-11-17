@@ -26,6 +26,18 @@ const userSchema = new mongoose.Schema(
     linkedinUrl: { type: String, trim: true },
     skills: [{ type: String, trim: true }],
     notificationPrefs: { type: notificationPrefsSchema, default: () => ({}) },
+    // Connected WhatsApp number (digits, international format). Proven by the user sending a one-time
+    // code from that number to the bot, so nobody can connect a number they don't control.
+    whatsapp: {
+      phone: { type: String, trim: true },
+      linkedAt: Date,
+      remindersEnabled: { type: Boolean, default: true },
+      lastInboundAt: Date, // WhatsApp only allows free-form replies for 24 h after the user's last message
+      pending: { type: mongoose.Schema.Types.Mixed, select: false }, // a job being added that still needs details
+    },
+    // One-time code for connecting WhatsApp: stored hashed, valid for a few minutes.
+    whatsappLinkCode: { type: String, select: false },
+    whatsappLinkExpiresAt: { type: Date, select: false },
     // Personal code friends type to send a friend request (e.g. "K7QM-3XPA"). Users can't be
     // searched or listed, so this (shared by the user themselves) is the only way to find someone.
     // Not selected by default, so it never appears in other responses by accident.
@@ -46,7 +58,13 @@ userSchema.methods.comparePassword = function comparePassword(candidate) {
 };
 
 userSchema.set('toJSON', {
-  transform: (_doc, ret) => { delete ret.password; delete ret.passwordChangedAt; delete ret.__v; return ret; },
+  transform: (_doc, ret) => {
+    // WhatsApp details are only returned by the WhatsApp settings endpoint (number masked).
+    for (const k of ['password', 'passwordChangedAt', '__v', 'whatsapp', 'whatsappLinkCode', 'whatsappLinkExpiresAt']) delete ret[k];
+    return ret;
+  },
 });
+// One account per WhatsApp number.
+userSchema.index({ 'whatsapp.phone': 1 }, { unique: true, partialFilterExpression: { 'whatsapp.phone': { $type: 'string' } } });
 
 export const User = mongoose.model('User', userSchema);

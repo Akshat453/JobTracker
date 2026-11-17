@@ -24,6 +24,13 @@ export const applicationsApi = {
   importCsv: (rows, { dryRun } = {}) => data(api.post('/applications/import', { rows, ...(dryRun ? { dryRun: true } : {}) })),
 };
 
+export const whatsappApi = {
+  status: () => data(api.get('/whatsapp')),
+  linkCode: () => data(api.post('/whatsapp/link-code')),
+  update: (body) => data(api.put('/whatsapp', body)),
+  disconnect: () => data(api.delete('/whatsapp')),
+};
+
 export const resumeProfileApi = {
   get: () => data(api.get('/resume-profile')),
   save: (body) => data(api.put('/resume-profile', body)),

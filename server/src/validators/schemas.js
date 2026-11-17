@@ -263,3 +263,6 @@ export const resumeProfileSchema = z.object({
   skills: entries({ category: text(100), items: text(2000) }, 30, 'skill groups'),
   extras: entries({ title: text(100), content: text(6000) }, 20, 'extra sections'),
 });
+
+// ---------- WhatsApp ----------
+export const whatsappSettingsSchema = z.object({ remindersEnabled: z.boolean() });

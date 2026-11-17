@@ -1158,3 +1158,143 @@ describe('resume sections', () => {
     assert.equal((await authA(api().get('/api/resume-profile'))).body.profile.contact.fullName, 'Test Person');
   });
 });
+
+describe('WhatsApp', async () => {
+  const crypto = await import('node:crypto');
+  const { testOutbox } = await import('../src/services/whatsapp/client.js');
+  const { parseJobMessage, parseReminder } = await import('../src/services/whatsapp/bot.js');
+  const { runWhatsAppReminders } = await import('../src/services/notifier.js');
+  const { parseJobPage, isPrivateAddress, fetchPublicPage, companyFromUrl } = await import('../src/services/jobLinkInfo.js');
+  const { User: UserModel, Reminder: ReminderModel } = await import('../src/models/index.js');
+
+  const PHONE = '919800000001';
+  let n = 0;
+  const signed = (payload, secret = 'test-whatsapp-secret') => {
+    const raw = JSON.stringify(payload);
+    const sig = `sha256=${crypto.createHmac('sha256', secret).update(raw).digest('hex')}`;
+    return api().post('/api/whatsapp/webhook').set('content-type', 'application/json').set('x-hub-signature-256', sig).send(raw);
+  };
+  const message = (text, from = PHONE, id = `wamid.${Date.now()}.${n += 1}`) => ({
+    object: 'whatsapp_business_account',
+    entry: [{ changes: [{ field: 'messages', value: { messages: [{ id, from, type: 'text', text: { body: text } }] } }] }],
+  });
+  const say = async (text, from) => { testOutbox.length = 0; const res = await signed(message(text, from)); assert.equal(res.status, 200); return testOutbox.map((m) => m.text?.body || '').join('\n'); };
+
+  test('webhook verification and signatures', async () => {
+    const ok = await api().get('/api/whatsapp/webhook').query({ 'hub.mode': 'subscribe', 'hub.verify_token': 'test-verify-token', 'hub.challenge': 'abc123' });
+    assert.equal(ok.status, 200); assert.equal(ok.text, 'abc123');
+    assert.equal((await api().get('/api/whatsapp/webhook').query({ 'hub.mode': 'subscribe', 'hub.verify_token': 'wrong', 'hub.challenge': 'x' })).status, 403);
+    assert.equal((await api().post('/api/whatsapp/webhook').send(message('hi'))).status, 401);
+    assert.equal((await signed(message('hi'), 'wrong-secret')).status, 401);
+  });
+
+  test('unknown numbers are told how to connect, then left alone', async () => {
+    assert.match(await say('hello', '919800000099'), /isn't connected/);
+    await say('hello', '919800000099');
+    assert.equal(await say('hello', '919800000099'), '');
+  });
+
+  test('connects with a one-time code sent from WhatsApp', async () => {
+    const status = await authA(api().get('/api/whatsapp'));
+    assert.equal(status.body.connected, false);
+    assert.equal(status.body.configured, true);
+    const { body } = await authA(api().post('/api/whatsapp/link-code'));
+    assert.match(body.code, /^JT-[A-F0-9]{5}-[A-F0-9]{5}$/);
+    assert.match(body.url, /^https:\/\/wa\.me\/\d+\?text=link%20JT-/);
+    assert.match(await say('link JT-00000-00000'), /wrong or has expired/);
+    assert.match(await say(body.text), /Connected to Job Tracker as Alice/);
+    const after = await authA(api().get('/api/whatsapp'));
+    assert.equal(after.body.connected, true);
+    assert.equal(after.body.phone, '+91 ••••• 0001');
+    assert.match(await say(body.text), /wrong or has expired/, 'a code works once');
+    const me = await authA(api().get('/api/auth/me'));
+    assert.equal(me.body.user.whatsapp, undefined, 'number not exposed elsewhere');
+  });
+
+  test('saves a job from a link and company name, asking for what is missing', async () => {
+    let r = await say('https://jobs.lever.co/acmeco/abc-123 Acme Corp');
+    assert.match(r, /job title/);
+    r = await say('Backend Engineer');
+    assert.match(r, /Saved: \*Backend Engineer\* at \*Acme Corp\*/);
+    const list = await authA(api().get('/api/applications')).query({ search: 'Acme Corp' });
+    const app = list.body.items[0];
+    assert.equal(app.status, 'saved');
+    assert.equal(app.jobPostingUrl, 'https://jobs.lever.co/acmeco/abc-123');
+    assert.match(await say('https://jobs.lever.co/acmeco/abc-123?utm_source=x'), /already have this one/);
+  });
+
+  test('a link alone uses the company from the job board URL; skip saves without a title', async () => {
+    assert.match(await say('https://boards.greenhouse.io/stripe/jobs/999'), /Got it: Stripe\. What's the job title/);
+    assert.match(await say('skip'), /Saved: \*Untitled role\* at \*Stripe\*/);
+    assert.match(await say('https://example.org/careers/1'), /company name/);
+    assert.match(await say('cancel'), /not saved/);
+  });
+
+  test('sets and lists reminders, and ignores repeated deliveries', async () => {
+    const r = await say('remind me to call the recruiter tomorrow 5pm');
+    assert.match(r, /Reminder set: \*call the recruiter\*/);
+    const rem = await ReminderModel.findOne({ title: 'call the recruiter' });
+    assert.ok(rem.viaWhatsApp);
+    assert.match(await say('remind me to do things'), /When should I remind you/);
+    assert.match(await say('reminders'), /call the recruiter/);
+    assert.match(await say('saved'), /Backend Engineer at Acme Corp/);
+    const payload = message('reminders', PHONE, 'wamid.same');
+    testOutbox.length = 0;
+    await signed(payload); await signed(payload);
+    assert.equal(testOutbox.length, 1);
+  });
+
+  test('sends due reminders on WhatsApp once, only inside the 24-hour window without a template', async () => {
+    const user = await UserModel.findOne({ 'whatsapp.phone': PHONE });
+    await ReminderModel.updateMany({ user: user._id }, { whatsappedAt: new Date() });
+    await ReminderModel.create({ user: user._id, title: 'Send portfolio', dueDate: new Date(Date.now() - 60_000), type: 'custom' });
+    await ReminderModel.create({ user: user._id, title: 'Later today', dueDate: new Date(Date.now() + 3 * 3_600_000), type: 'custom' });
+    testOutbox.length = 0;
+    assert.equal(await runWhatsAppReminders(new Date(), { userId: user._id }), 1);
+    assert.match(testOutbox[0].text.body, /Send portfolio/);
+    assert.doesNotMatch(testOutbox[0].text.body, /Later today/, 'custom reminders go out at their time');
+    assert.equal(await runWhatsAppReminders(new Date(), { userId: user._id }), 0, 'sent once');
+
+    await UserModel.updateOne({ _id: user._id }, { 'whatsapp.lastInboundAt': new Date(Date.now() - 2 * 86400e3) });
+    await ReminderModel.create({ user: user._id, title: 'Outside window', dueDate: new Date(Date.now() - 60_000), type: 'custom' });
+    assert.equal(await runWhatsAppReminders(new Date(), { userId: user._id }), 0, 'needs a template outside the window');
+  });
+
+  test('settings can turn reminders off and disconnect', async () => {
+    const off = await authA(api().put('/api/whatsapp')).send({ remindersEnabled: false });
+    assert.equal(off.body.remindersEnabled, false);
+    assert.equal((await authA(api().put('/api/whatsapp')).send({ remindersEnabled: 'no' })).status, 400);
+    const gone = await authA(api().delete('/api/whatsapp'));
+    assert.equal(gone.body.connected, false);
+    assert.match(await say('reminders'), /isn't connected/);
+  });
+
+  test('message parsing', () => {
+    assert.deepEqual(parseJobMessage('add https://jobs.lever.co/acme/1, Acme Inc'), { url: 'https://jobs.lever.co/acme/1', companyName: 'Acme Inc', jobTitle: '' });
+    assert.deepEqual(parseJobMessage('Company: Zeta\nhttps://zeta.dev/jobs/2\ntitle: SDE 1'), { url: 'https://zeta.dev/jobs/2', companyName: 'Zeta', jobTitle: 'SDE 1' });
+    assert.equal(parseJobMessage('no link here'), null);
+    const now = new Date('2026-11-17T10:00:00Z'); // 15:30 in India
+    const r = parseReminder('remind me to email Priya tomorrow at 5pm', 'Asia/Kolkata', now);
+    assert.equal(r.title, 'email Priya');
+    assert.equal(r.dueDate.toISOString(), '2026-11-18T11:30:00.000Z');
+    assert.equal(parseReminder('remind me to apply on friday', 'Asia/Kolkata', now).dueDate.toISOString(), '2026-11-20T03:30:00.000Z', 'date only → 9 am');
+  });
+
+  test('reading job pages', () => {
+    const html = `<html><head><title>x</title><script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'JobPosting', title: 'Data Engineer', hiringOrganization: { '@type': 'Organization', name: 'Razorpay', sameAs: 'https://razorpay.com/about' } })}</script></head></html>`;
+    assert.deepEqual(parseJobPage(html, 'https://jobs.lever.co/razorpay/1'), { companyName: 'Razorpay', website: 'https://razorpay.com', jobTitle: 'Data Engineer' });
+    const li = '<meta property="og:title" content="Swiggy hiring SDE 2 in Bengaluru, Karnataka, India | LinkedIn">';
+    assert.deepEqual(parseJobPage(li, 'https://www.linkedin.com/jobs/view/123'), { companyName: 'Swiggy', website: '', jobTitle: 'SDE 2' });
+    const own = '<title>Senior Designer - Acme Careers</title>';
+    assert.deepEqual(parseJobPage(own, 'https://careers.acme.com/jobs/7'), { companyName: 'Acme', website: 'https://acme.com', jobTitle: 'Senior Designer' });
+    assert.equal(companyFromUrl('https://acme.wd5.myworkdayjobs.com/en-US/careers/job/1'), 'Acme');
+  });
+
+  test('never fetches private or local addresses', async () => {
+    for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.1.1', '172.20.0.1', '169.254.169.254', '::1', 'fd00::1', '::ffff:127.0.0.1', '0.0.0.0']) assert.ok(isPrivateAddress(ip), ip);
+    assert.ok(!isPrivateAddress('8.8.8.8'));
+    for (const url of ['http://127.0.0.1:5001/api/health', 'http://localhost/', 'http://169.254.169.254/latest/meta-data', 'file:///etc/passwd', 'http://[::1]/', 'http://user:pw@example.com/']) {
+      assert.equal((await fetchPublicPage(url)).html, '', url);
+    }
+  });
+});

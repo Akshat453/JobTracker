@@ -15,7 +15,8 @@ import * as analytics from '../controllers/analyticsController.js';
 import * as shares from '../controllers/shareController.js';
 import * as friends from '../controllers/friendController.js';
 import * as resumeProfile from '../controllers/resumeProfileController.js';
-import { runReminderNotifications } from '../services/notifier.js';
+import * as whatsapp from '../controllers/whatsappController.js';
+import { runAllNotifications } from '../services/notifier.js';
 import { sendMail, isMailConfigured } from '../services/mailer.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { MongoRateLimitStore } from '../utils/mongoRateLimitStore.js';
@@ -44,6 +45,7 @@ const shareOpenLimiter = limiter('share-open', 15, 100, 'Too many requests, plea
 const friendRequestLimiter = limiter('friend-request', 60, 20, 'Too many friend requests. Try again later.', { shared: true });
 const sendJobsLimiter = limiter('send-jobs', 60, 20, 'Too many jobs sent. Try again later.', { shared: true });
 const importLimiter = limiter('import', 60, 30, 'Too many imports. Try again later.', { shared: true });
+const whatsappCodeLimiter = limiter('wa-code', 60, 20, 'Too many connect codes. Try again later.', { shared: true });
 const mailLimiter = limiter('mail', 60, 5, 'Too many emails requested. Try again later.', { shared: true });
 
 router.use(apiLimiter);
@@ -51,8 +53,13 @@ router.get('/health', (_req, res) => res.json({ ok: true }));
 
 // ---- Scheduled jobs (Vercel Cron). Protected by CRON_SECRET, not user auth.
 router.get('/cron/reminders', requireCronSecret, asyncHandler(async (_req, res) => {
-  res.json({ digestsSent: await runReminderNotifications() });
+  const { emails, whatsapp: whatsappSent } = await runAllNotifications();
+  res.json({ digestsSent: emails, whatsappSent });
 }));
+
+// ---- WhatsApp webhook (Meta). Verified by signature, not user auth.
+router.get('/whatsapp/webhook', whatsapp.verifyWebhook);
+router.post('/whatsapp/webhook', whatsapp.receiveWebhook);
 
 // ---- Auth & profile
 router.get('/auth/config', auth.authConfig);
@@ -98,6 +105,12 @@ router.post('/friend-code/regenerate', friendRequestLimiter, friends.regenerateC
 router.post('/friends/send-jobs', sendJobsLimiter, validate(S.sendJobsSchema), friends.sendJobs);
 router.post('/friends/:id/accept', friends.acceptRequest);
 router.delete('/friends/:id', friends.removeFriendship);
+
+// ---- WhatsApp connection
+router.get('/whatsapp', whatsapp.getStatus);
+router.post('/whatsapp/link-code', whatsappCodeLimiter, whatsapp.linkCode);
+router.put('/whatsapp', validate(S.whatsappSettingsSchema), whatsapp.updateSettings);
+router.delete('/whatsapp', whatsapp.disconnect);
 
 // ---- Resume sections (copy-ready text for job-board forms)
 router.get('/resume-profile', resumeProfile.getProfile);

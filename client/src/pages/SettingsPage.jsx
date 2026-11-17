@@ -9,6 +9,7 @@ import { useToast } from '../context/ToastContext.jsx';
 import { PageHeader, Card, Button, Field, Input, Select, TagInput, Toggle } from '../components/ui/index.js';
 import { cn } from '../lib/format.js';
 import { URL_RX, EMAIL_RX } from '../components/applications/form/formUtils.js';
+import { WhatsAppCard } from '../components/settings/WhatsAppCard.jsx';
 
 function ProfileForm() {
   const { user, setUser } = useAuth();
@@ -130,9 +131,10 @@ function Appearance() {
 export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader title="Settings" description="Profile, security, notifications and appearance." />
+      <PageHeader title="Settings" description="Profile, security, WhatsApp, notifications and appearance." />
       <ProfileForm />
       <Appearance />
+      <WhatsAppCard />
       <NotificationPrefs />
       <PasswordForm />
     </div>

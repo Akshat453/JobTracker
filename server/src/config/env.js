@@ -38,7 +38,22 @@ export const env = {
   reminderIntervalMin: Number(process.env.REMINDER_CHECK_INTERVAL_MIN ?? 60),
   // Time zone for reminder times in emails, for users whose browser time zone isn't known yet.
   defaultTimeZone: process.env.DEFAULT_TIME_ZONE || 'Asia/Kolkata',
+  // WhatsApp Cloud API (Meta). All of token, phone number id, app secret and verify token are needed.
+  whatsapp: {
+    token: process.env.WHATSAPP_TOKEN || '',
+    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+    // Signs every webhook call (X-Hub-Signature-256); calls without a valid signature are rejected.
+    appSecret: isTest ? 'test-whatsapp-secret' : process.env.WHATSAPP_APP_SECRET || '',
+    verifyToken: isTest ? 'test-verify-token' : process.env.WHATSAPP_VERIFY_TOKEN || '',
+    // The bot's number in international format without "+", shown to users for wa.me links.
+    botNumber: (process.env.WHATSAPP_BOT_NUMBER || (isTest ? '15550001111' : '')).replace(/\D/g, ''),
+    // Approved "utility" template for reminders sent more than 24 h after the user's last message.
+    reminderTemplate: process.env.WHATSAPP_REMINDER_TEMPLATE || '',
+    templateLanguage: process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'en',
+    apiVersion: process.env.WHATSAPP_API_VERSION || 'v23.0',
+  },
 };
+env.whatsapp.enabled = isTest || Boolean(env.whatsapp.token && env.whatsapp.phoneNumberId && env.whatsapp.appSecret && env.whatsapp.verifyToken && env.whatsapp.botNumber);
 
 if (!env.jwtSecret) {
   throw new Error('JWT_SECRET is not set. Copy server/.env.example to server/.env and fill it in.');

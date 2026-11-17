@@ -241,7 +241,7 @@ const IMPORT_FIELD_LABELS = {
 const SOURCE_HOSTS = [[/linkedin\./, 'LinkedIn'], [/naukri\./, 'Naukri'], [/wellfound\.|angel\.co/, 'Wellfound'], [/indeed\./, 'Indeed'], [/internshala\./, 'Internshala']];
 const hostOf = (url) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; } };
 /** Where an imported job was found, from its posting link (the CSV has no source column). */
-function guessSource(job) {
+export function guessSource(job) {
   const host = hostOf(job.jobPostingUrl);
   if (!host) return 'Other';
   const known = SOURCE_HOSTS.find(([re]) => re.test(host));
