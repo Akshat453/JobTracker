@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, Copy, MessageCircle, Unplug } from 'lucide-react';
+import { CheckCircle2, Copy, MessageCircle, Power, Unplug } from 'lucide-react';
 import { whatsappApi } from '../../api/endpoints.js';
 import { errorMessage } from '../../api/client.js';
 import { useToast } from '../../context/ToastContext.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 import { Card, Button, Toggle, Skeleton } from '../ui/index.js';
 import { timeAgo } from '../../lib/format.js';
 
@@ -16,6 +17,8 @@ const EXAMPLES = [
 /** Connect a WhatsApp number: the user sends a one-time code to the bot from that number. */
 export function WhatsAppCard() {
   const toast = useToast();
+  const { user } = useAuth();
+  const emailOn = Boolean(user?.notificationPrefs?.emailEnabled);
   const [status, setStatus] = useState(null);
   const [link, setLink] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -48,12 +51,22 @@ export function WhatsAppCard() {
     if (!window.confirm('Disconnect WhatsApp? The bot will stop sending you reminders and accepting jobs from this number.')) return;
     try { setStatus(await whatsappApi.disconnect()); toast.success('WhatsApp disconnected'); } catch (e) { toast.error(errorMessage(e)); }
   };
+  const setFeature = async (on) => {
+    if (!on && !window.confirm('Turn off WhatsApp for your account? Your number is disconnected and the bot stops working for you until you turn it back on.')) return;
+    try { setLink(null); setStatus(await whatsappApi.update({ featureEnabled: on })); toast.success(on ? 'WhatsApp turned on' : 'WhatsApp turned off'); } catch (e) { toast.error(errorMessage(e)); }
+  };
+  const turnOff = <Button size="sm" variant="ghost" icon={Power} className="text-muted" onClick={() => setFeature(false)}>Turn off WhatsApp</Button>;
   const copy = async (text) => { try { await navigator.clipboard.writeText(text); toast.success('Copied'); } catch { toast.error('Copy failed'); } };
 
   return (
     <Card title="WhatsApp" description="Save jobs, set reminders and get reminders by messaging the Job Tracker bot on WhatsApp.">
       {!status ? <Skeleton className="h-20" /> : !status.configured ? (
         <p className="text-sm text-muted">WhatsApp isn't set up on this server yet. The site owner needs to add the WhatsApp Cloud API settings.</p>
+      ) : !status.featureEnabled ? (
+        <div className="flex flex-wrap items-center gap-3">
+          <p className="min-w-0 flex-1 basis-56 text-sm text-muted">WhatsApp is turned off for your account. Nothing is sent to or accepted from WhatsApp.</p>
+          <Button size="sm" variant="secondary" icon={Power} onClick={() => setFeature(true)}>Turn on</Button>
+        </div>
       ) : status.connected ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
@@ -69,6 +82,10 @@ export function WhatsAppCard() {
           </div>
           <Toggle checked={status.remindersEnabled} onChange={setReminders} label="Send my reminders on WhatsApp"
             description="Reminders you set on WhatsApp arrive at their time; interview, follow-up and deadline reminders arrive within the time chosen under Email notifications." />
+          <div className="rounded-lg bg-subtle/60 p-3 text-xs text-muted">
+            <p><b className="text-fg">Always free.</b> WhatsApp only lets the bot message you for free within 24 hours of your last message to it, so reminders come on WhatsApp only then. Reminders due after that are not sent on WhatsApp; they come by email instead. Message the bot once a day (even "hi") to keep getting them there.</p>
+            {!emailOn && <p className="mt-1.5 font-medium text-amber-700 dark:text-amber-400">Email reminders are off, so reminders due more than 24 hours after your last WhatsApp message won't reach you. Turn them on under Email notifications below.</p>}
+          </div>
           <div className="rounded-lg border border-border p-3">
             <p className="mb-2 text-xs font-medium text-muted">Things you can send</p>
             <ul className="space-y-1.5 text-sm">
@@ -76,8 +93,9 @@ export function WhatsAppCard() {
                 <li key={label} className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"><span className="w-28 shrink-0 text-muted">{label}</span><code className="break-all rounded bg-subtle px-1.5 py-0.5 text-xs">{text}</code></li>
               ))}
             </ul>
-            <p className="mt-2 text-xs text-muted">Send just a job link and the company name, website and job title are filled in from the posting when possible. The bot asks for anything it can't find.</p>
+            <p className="mt-2 text-xs text-muted">Send just a job link and the company name, website and job title are filled in from the posting when possible. Forward job posts from groups, several at once, and each one is saved.</p>
           </div>
+          <div className="border-t border-border pt-3">{turnOff}</div>
         </div>
       ) : link ? (
         <div className="space-y-3">
@@ -95,7 +113,10 @@ export function WhatsAppCard() {
       ) : (
         <div className="space-y-3">
           <p className="text-sm text-muted">Connect your number to send job links and reminders to Job Tracker from WhatsApp, and to get your reminders there.</p>
-          <Button icon={MessageCircle} loading={busy} onClick={start}>Connect WhatsApp</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button icon={MessageCircle} loading={busy} onClick={start}>Connect WhatsApp</Button>
+            {turnOff}
+          </div>
         </div>
       )}
     </Card>

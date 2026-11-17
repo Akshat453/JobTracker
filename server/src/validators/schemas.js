@@ -265,4 +265,5 @@ export const resumeProfileSchema = z.object({
 });
 
 // ---------- WhatsApp ----------
-export const whatsappSettingsSchema = z.object({ remindersEnabled: z.boolean() });
+export const whatsappSettingsSchema = z.object({ remindersEnabled: z.boolean().optional(), featureEnabled: z.boolean().optional() })
+  .refine((v) => v.remindersEnabled !== undefined || v.featureEnabled !== undefined, 'Nothing to change');

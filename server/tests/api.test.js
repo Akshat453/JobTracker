@@ -1220,7 +1220,7 @@ describe('WhatsApp', async () => {
     const app = list.body.items[0];
     assert.equal(app.status, 'saved');
     assert.equal(app.jobPostingUrl, 'https://jobs.lever.co/acmeco/abc-123');
-    assert.match(await say('https://jobs.lever.co/acmeco/abc-123?utm_source=x'), /already have this one/);
+    assert.match(await say('https://jobs.lever.co/acmeco/abc-123?utm_source=x'), /Already saved/);
   });
 
   test('a link alone uses the company from the job board URL; skip saves without a title', async () => {
@@ -1244,7 +1244,7 @@ describe('WhatsApp', async () => {
     assert.equal(testOutbox.length, 1);
   });
 
-  test('sends due reminders on WhatsApp once, only inside the 24-hour window without a template', async () => {
+  test('sends due reminders on WhatsApp once, only inside the free window', async () => {
     const user = await UserModel.findOne({ 'whatsapp.phone': PHONE });
     await ReminderModel.updateMany({ user: user._id }, { whatsappedAt: new Date() });
     await ReminderModel.create({ user: user._id, title: 'Send portfolio', dueDate: new Date(Date.now() - 60_000), type: 'custom' });
@@ -1254,10 +1254,48 @@ describe('WhatsApp', async () => {
     assert.match(testOutbox[0].text.body, /Send portfolio/);
     assert.doesNotMatch(testOutbox[0].text.body, /Later today/, 'custom reminders go out at their time');
     assert.equal(await runWhatsAppReminders(new Date(), { userId: user._id }), 0, 'sent once');
+  });
 
-    await UserModel.updateOne({ _id: user._id }, { 'whatsapp.lastInboundAt': new Date(Date.now() - 2 * 86400e3) });
-    await ReminderModel.create({ user: user._id, title: 'Outside window', dueDate: new Date(Date.now() - 60_000), type: 'custom' });
-    assert.equal(await runWhatsAppReminders(new Date(), { userId: user._id }), 0, 'needs a template outside the window');
+  test('never sends on WhatsApp after the free window, not even later', async () => {
+    const user = await UserModel.findOne({ 'whatsapp.phone': PHONE });
+    for (const hoursAgo of [23.6, 24, 48]) {
+      await UserModel.updateOne({ _id: user._id }, { 'whatsapp.lastInboundAt': new Date(Date.now() - hoursAgo * 3_600_000) });
+      const r = await ReminderModel.create({ user: user._id, title: `Closed window ${hoursAgo}`, dueDate: new Date(Date.now() - 60_000), type: 'custom' });
+      testOutbox.length = 0;
+      assert.equal(await runWhatsAppReminders(new Date(), { userId: user._id }), 0, `${hoursAgo} h`);
+      assert.equal(testOutbox.length, 0);
+      assert.ok((await ReminderModel.findById(r._id)).whatsappedAt, 'marked so it is never sent on WhatsApp later');
+      assert.equal((await ReminderModel.findById(r._id)).emailedAt, undefined, 'still left for the email digest');
+    }
+    // Messaging the bot again opens a new window, but the skipped reminders stay skipped.
+    await say('hi');
+    testOutbox.length = 0;
+    assert.equal(await runWhatsAppReminders(new Date(), { userId: user._id }), 0);
+    assert.equal(testOutbox.length, 0);
+  });
+
+  test('the sender refuses anything outside the window, and paid message types do not exist', async () => {
+    const client = await import('../src/services/whatsapp/client.js');
+    await assert.rejects(client.sendText(PHONE, 'x', { lastInboundAt: new Date(Date.now() - 24 * 3_600_000) }), /outside the free 24-hour/);
+    await assert.rejects(client.sendText(PHONE, 'x', {}), /outside the free 24-hour/);
+    await assert.rejects(client.sendText(PHONE, 'x', { lastInboundAt: new Date(Date.now() + 3_600_000) }), /outside/, 'future times are not trusted');
+    assert.equal(client.sendTemplate, undefined);
+    // Guard against paid sending being added back anywhere in the server code.
+    const { readdir, readFile } = await import('node:fs/promises');
+    const files = (await readdir(new URL('../src', import.meta.url), { recursive: true })).filter((f) => f.endsWith('.js'));
+    for (const f of files) {
+      const src = await readFile(new URL(`../src/${f}`, import.meta.url), 'utf8');
+      assert.doesNotMatch(src, /type:\s*['"](template|interactive|image|document|audio|video)['"]/, f);
+      if (!f.endsWith('client.js')) assert.doesNotMatch(src, /graph\.facebook\.com/, `${f} must send through client.js`);
+    }
+  });
+
+  test('old redelivered messages get no reply', async () => {
+    testOutbox.length = 0;
+    const old = message('reminders');
+    old.entry[0].changes[0].value.messages[0].timestamp = String(Math.floor(Date.now() / 1000) - 25 * 3600);
+    assert.equal((await signed(old)).status, 200);
+    assert.equal(testOutbox.length, 0);
   });
 
   test('settings can turn reminders off and disconnect', async () => {
@@ -1267,6 +1305,57 @@ describe('WhatsApp', async () => {
     const gone = await authA(api().delete('/api/whatsapp'));
     assert.equal(gone.body.connected, false);
     assert.match(await say('reminders'), /isn't connected/);
+  });
+
+  test('a burst of forwarded group posts is saved at once, without questions or duplicates', async () => {
+    // The previous test disconnected the number: connect it again.
+    const { body: code } = await authA(api().post('/api/whatsapp/link-code'));
+    assert.match(await say(code.text), /Connected/);
+    const t = Date.now().toString(36);
+    const posts = [
+      `🚀 *Razorpay is hiring SDE 1*\nExperience: 0-2 years\nLocation: Bengaluru\nApply here: https://jobs.lever.co/razorpay/${t}-1\nShare with friends!`,
+      `Company: Zomato\nRole: Backend Engineer Intern\nBatch: 2026\nLink: https://zomato.com/careers/${t}-2`,
+      `https://boards.greenhouse.io/postman/jobs/${t}3`,
+      `Multiple openings 👇\nCRED - Frontend Developer: https://careers.cred.club/${t}-4\nSwiggy - Data Analyst: https://careers.swiggy.com/${t}-5\nJoin our channel: https://chat.whatsapp.com/abc`,
+      `🚀 *Razorpay is hiring SDE 1*\nApply here: https://jobs.lever.co/razorpay/${t}-1`, // same job again
+    ];
+    const mk = (body, i) => ({ id: `wamid.burst.${t}.${i}`, from: PHONE, timestamp: String(Math.floor(Date.now() / 1000)), type: 'text', text: { body }, context: { forwarded: true } });
+    testOutbox.length = 0;
+    // Some in one delivery, some as separate deliveries at the same moment.
+    const results = await Promise.all([
+      signed({ entry: [{ changes: [{ value: { messages: [mk(posts[0], 0), mk(posts[1], 1)] } }] }] }),
+      signed({ entry: [{ changes: [{ value: { messages: [mk(posts[2], 2)] } }] }] }),
+      signed({ entry: [{ changes: [{ value: { messages: [mk(posts[3], 3)] } }] }] }),
+      signed({ entry: [{ changes: [{ value: { messages: [mk(posts[4], 4)] } }] }] }),
+    ]);
+    assert.ok(results.every((r) => r.status === 200));
+    const replies = testOutbox.map((m) => m.text.body).join('\n---\n');
+    assert.doesNotMatch(replies, /What's the/, 'no questions for forwarded posts');
+    const list = (await authA(api().get('/api/applications')).query({ limit: 100 })).body.items
+      .filter((a) => a.jobPostingUrl?.includes(t));
+    const byUrl = Object.fromEntries(list.map((a) => [a.jobPostingUrl.replace(/.*\//, ''), `${a.jobTitle} @ ${a.company.name}`]));
+    assert.equal(list.length, 5, `saved once each: ${JSON.stringify(byUrl)}`);
+    assert.equal(byUrl[`${t}-1`], 'SDE 1 @ Razorpay');
+    assert.equal(byUrl[`${t}-2`], 'Backend Engineer Intern @ Zomato');
+    assert.equal(byUrl[`${t}3`], 'Untitled role @ Postman');
+    assert.equal(byUrl[`${t}-4`], 'Frontend Developer @ CRED');
+    assert.equal(byUrl[`${t}-5`], 'Data Analyst @ Swiggy');
+    assert.match(replies, /Already (saved|saving)/);
+    assert.match(replies, /Couldn't find the job title/);
+    assert.doesNotMatch(replies, /chat\.whatsapp\.com/);
+  });
+
+  test('turning the feature off disconnects and blocks connecting', async () => {
+    const { body: code } = await authB(api().post('/api/whatsapp/link-code'));
+    const off = await authB(api().put('/api/whatsapp')).send({ featureEnabled: false });
+    assert.equal(off.body.featureEnabled, false);
+    assert.equal(off.body.connected, false);
+    assert.equal((await authB(api().post('/api/whatsapp/link-code'))).status, 400);
+    assert.match(await say(code.text, '919800000077'), /wrong or has expired/, 'an earlier code stops working');
+    const on = await authB(api().put('/api/whatsapp')).send({ featureEnabled: true });
+    assert.equal(on.body.featureEnabled, true);
+    assert.equal((await authB(api().post('/api/whatsapp/link-code'))).status, 200);
+    assert.equal((await authB(api().put('/api/whatsapp')).send({})).status, 400);
   });
 
   test('message parsing', () => {

@@ -35,6 +35,8 @@ const userSchema = new mongoose.Schema(
       lastInboundAt: Date, // WhatsApp only allows free-form replies for 24 h after the user's last message
       pending: { type: mongoose.Schema.Types.Mixed, select: false }, // a job being added that still needs details
     },
+    // The user turned the WhatsApp feature off: no connecting, no messages, card collapsed.
+    whatsappOff: { type: Boolean, default: false },
     // One-time code for connecting WhatsApp: stored hashed, valid for a few minutes.
     whatsappLinkCode: { type: String, select: false },
     whatsappLinkExpiresAt: { type: Date, select: false },
@@ -60,7 +62,7 @@ userSchema.methods.comparePassword = function comparePassword(candidate) {
 userSchema.set('toJSON', {
   transform: (_doc, ret) => {
     // WhatsApp details are only returned by the WhatsApp settings endpoint (number masked).
-    for (const k of ['password', 'passwordChangedAt', '__v', 'whatsapp', 'whatsappLinkCode', 'whatsappLinkExpiresAt']) delete ret[k];
+    for (const k of ['password', 'passwordChangedAt', '__v', 'whatsapp', 'whatsappOff', 'whatsappLinkCode', 'whatsappLinkExpiresAt']) delete ret[k];
     return ret;
   },
 });

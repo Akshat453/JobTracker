@@ -7,7 +7,8 @@ import { STATUS_LABELS } from '../../utils/constants.js';
 import { MongoRateLimitStore } from '../../utils/mongoRateLimitStore.js';
 import { createApplication, duplicateFinder, guessSource } from '../applicationService.js';
 import { jobLinkInfo } from '../jobLinkInfo.js';
-import { sendText } from './client.js';
+import { postingKey } from '../../utils/jobMatch.js';
+import { sendText, insideFreeWindow } from './client.js';
 
 /**
  * The WhatsApp bot: connects a number to an account, saves jobs from links, and sets and lists
@@ -32,6 +33,7 @@ export const HELP = [
   '*Save a job*: send the job link and the company name, e.g.',
   'https://jobs.lever.co/acme/123 Acme',
   "Just the link works too; I'll find the company, website and job title.",
+  'You can also forward job posts from groups, several at once.',
   '',
   '*Set a reminder*: remind me to call the recruiter tomorrow 5pm',
   '*See reminders*: reminders',
@@ -50,50 +52,108 @@ export async function createLinkCode(user) {
   return { code, expiresInMinutes: LINK_CODE_MINUTES };
 }
 
-async function link(phone, code, reply) {
+async function link(phone, code, reply, sentAt) {
   const { totalHits } = await linkAttempts.increment(phone);
   if (totalHits > 5) return reply('Too many attempts. Please try again in an hour.');
   const user = await User.findOneAndUpdate(
-    { whatsappLinkCode: hashCode(code), whatsappLinkExpiresAt: { $gt: new Date() } },
+    { whatsappLinkCode: hashCode(code), whatsappLinkExpiresAt: { $gt: new Date() }, whatsappOff: { $ne: true } },
     { $unset: { whatsappLinkCode: 1, whatsappLinkExpiresAt: 1 } },
     { new: true },
   );
   if (!user) return reply(`That code is wrong or has expired. Get a new one in Settings → WhatsApp on ${site()}/settings`);
   // A number belongs to one account: connecting it here disconnects it anywhere else.
   await User.updateMany({ 'whatsapp.phone': phone, _id: { $ne: user._id } }, { $unset: { whatsapp: 1 } });
-  user.whatsapp = { phone, linkedAt: new Date(), remindersEnabled: true, lastInboundAt: new Date() };
+  user.whatsapp = { phone, linkedAt: new Date(), remindersEnabled: true, lastInboundAt: sentAt };
   await user.save();
   return reply(`✅ Connected to Job Tracker as ${user.name}.\n\n${HELP}`);
 }
 
 // ---------- saving jobs ----------
-const URL_RE = /\b((?:https?:\/\/|www\.)[^\s<>"']+)/i;
+const URL_RE = /\b((?:https?:\/\/|www\.)[^\s<>"'*]+)/gi;
+const MAX_LINKS_PER_MESSAGE = 10;
+// Links in group posts that are never job postings.
+const NOT_JOBS = /(^|\.)(chat\.whatsapp\.com|wa\.me|whatsapp\.com|t\.me|telegram\.me|instagram\.com|youtube\.com|youtu\.be|facebook\.com|fb\.me|twitter\.com|x\.com|discord\.gg|discord\.com|linktr\.ee|play\.google\.com|apps\.apple\.com)$/i;
 
 function normaliseUrl(raw) {
   try {
     const u = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
     if (!['http:', 'https:'].includes(u.protocol) || !u.hostname.includes('.')) return null;
+    if (NOT_JOBS.test(u.hostname.replace(/^www\./, ''))) return null;
     return u.toString().slice(0, 2000);
   } catch { return null; }
 }
 
-/** "add https://… Acme" / "Acme\nhttps://…" / "https://… company: Acme title: SDE" → parts. */
+const clean = (s, max) => String(s || '')
+  .replace(/\p{Extended_Pictographic}|️|‍/gu, '')
+  .replace(/[*_~`]+/g, '') // WhatsApp bold/italic markers
+  .replace(/\s+/g, ' ')
+  .replace(/^[\s:,\-–—|•·.]+|[\s:,\-–—|•·!.]+$/g, '')
+  .trim()
+  .slice(0, max);
+
+/** Company / role written in a group post: "Company: X", "Role: Y", "X is hiring Y", "Y at X". */
+export function guessFromText(text) {
+  const out = { companyName: '', jobTitle: '' };
+  const label = (re) => clean(re.exec(text)?.[1], 160);
+  out.companyName = clean(label(/(?:^|\n)\s*[^\n\w]*\s*(?:company|organi[sz]ation|org|employer)(?:\s*name)?\s*[:=\-–]\s*([^\n]+)/i), 120);
+  out.jobTitle = label(/(?:^|\n)\s*[^\n\w]*\s*(?:role|position|job\s*title|title|designation|profile|job\s*role|opening|post)\s*[:=\-–]\s*([^\n]+)/i);
+  const hiring = /(?:^|\n)[^\n\w]*([A-Z][\w&.,'()\- ]{1,60}?)\s+(?:is\s+)?hiring\s*(?:for\s+(?:the\s+)?(?:role\s+of\s+)?)?(?:an?\s+)?[:\-–]?\s*([^\n|(]{2,120})/i.exec(text);
+  if (hiring) {
+    out.companyName ||= clean(hiring[1], 120);
+    out.jobTitle ||= clean(hiring[2].replace(/\s+(?:in|at|for|-|–)\s+.*$/i, ''), 160);
+  }
+  const at = /(?:^|\n)[^\n\w]*([A-Z][^\n@|]{2,80}?)\s+(?:at|@)\s+([A-Z][\w&.'\- ]{1,60})/.exec(text);
+  if (at && !/https?:/.test(at[0])) {
+    out.jobTitle ||= clean(at[1], 160);
+    out.companyName ||= clean(at[2], 120);
+  }
+  if (/^(we|we're|we are|they|our team|urgent|urgently)$/i.test(out.companyName)) out.companyName = '';
+  return out;
+}
+
+/**
+ * The job links in a message, with any company / title written next to them.
+ * - A short typed message ("https://… Acme") treats the rest of the text as the company name.
+ * - A longer post (forwarded from a group, several lines) is read for labels and "X is hiring Y".
+ * - Several links → one job each, using the text on the same line.
+ */
+export function extractJobs(text) {
+  const found = [...text.matchAll(URL_RE)]
+    .map((m) => ({ m, url: normaliseUrl(m[1].replace(/[),.;!?\]]+$/, '')) }))
+    .filter((x) => x.url);
+  const seen = new Set();
+  const links = found.filter((x) => (seen.has(x.url) ? false : seen.add(x.url))).slice(0, MAX_LINKS_PER_MESSAGE);
+  if (!links.length) return [];
+
+  const without = text.replace(URL_RE, ' ');
+  if (links.length === 1) {
+    const rest = without.replace(/\s+/g, ' ').trim();
+    const typed = !/\n/.test(text.trim().replace(URL_RE, '').trim()) && rest.length <= 60;
+    if (typed) {
+      const parts = guessFromText(without);
+      const companyName = parts.companyName || clean(rest
+        .replace(/\b(?:company(?:\s*name)?)\s*[:=-]\s*/i, ' ')
+        .replace(/\b(?:title|role|position)\s*[:=-].*$/i, ' ')
+        .replace(/^\s*(?:add|save|new|job|saved|link)\b[\s:,-]*/i, ''), 120);
+      return [{ url: links[0].url, companyName, jobTitle: parts.jobTitle, post: false }];
+    }
+    return [{ url: links[0].url, ...guessFromText(without), post: true }];
+  }
+  return links.map(({ m, url }) => {
+    const lineStart = text.lastIndexOf('\n', m.index) + 1;
+    const lineEnd = text.indexOf('\n', m.index);
+    const line = text.slice(lineStart, lineEnd === -1 ? undefined : lineEnd).replace(URL_RE, ' ');
+    const g = guessFromText(line);
+    // "Acme - SDE 1: https://…" on one line
+    const pair = /^[^\w]*([^\n:–—|-]{2,60}?)\s*[–—|-]\s*([^\n:]{2,120}?)\s*:?\s*$/.exec(line.trim());
+    return { url, companyName: g.companyName || clean(pair?.[1], 120), jobTitle: g.jobTitle || clean(pair?.[2], 160), post: true };
+  });
+}
+
+/** Kept for compatibility: the first job in a message, or null. */
 export function parseJobMessage(text) {
-  const m = URL_RE.exec(text);
-  if (!m) return null;
-  const url = normaliseUrl(m[1].replace(/[),.;!?]+$/, ''));
-  if (!url) return null;
-  let rest = `${text.slice(0, m.index)} ${text.slice(m.index + m[0].length)}`;
-  let jobTitle = '';
-  const t = /\b(?:title|role|position)\s*[:=-]\s*([^\n]+)/i.exec(rest);
-  if (t) { jobTitle = t[1].trim(); rest = rest.replace(t[0], ' '); }
-  const companyName = rest
-    .replace(/\b(?:company(?:\s*name)?)\s*[:=-]\s*/i, ' ')
-    .replace(/^\s*(?:add|save|new|job|saved|link)\b[\s:,-]*/i, '')
-    .replace(/\s+/g, ' ')
-    .replace(/^[\s:,\-–—|]+|[\s:,\-–—|]+$/g, '')
-    .trim();
-  return { url, companyName: companyName.slice(0, 120), jobTitle: jobTitle.slice(0, 160) };
+  const [job] = extractJobs(text);
+  return job ? { url: job.url, companyName: job.companyName, jobTitle: job.jobTitle } : null;
 }
 
 const withTimeout = (p, ms, fallback) => Promise.race([p, new Promise((r) => setTimeout(() => r(fallback), ms))]);
@@ -102,52 +162,115 @@ async function setPending(user, pending) {
   await User.updateOne({ _id: user._id }, pending ? { 'whatsapp.pending': { ...pending, expiresAt: new Date(Date.now() + PENDING_MINUTES * 60_000) } } : { $unset: { 'whatsapp.pending': 1 } });
 }
 
-async function saveJob(user, job, reply) {
-  if (!job.companyName) {
-    await setPending(user, { ...job, step: 'company' });
-    return reply("What's the company name? (Reply *cancel* to stop.)");
-  }
-  if (!job.jobTitle) {
-    await setPending(user, { ...job, step: 'title' });
-    return reply(`Got it: ${job.companyName}. What's the job title? (Reply *skip* to save without one.)`);
-  }
-  await setPending(user, null);
+// Two copies of the same job forwarded at the same moment arrive as separate requests; this claim
+// makes sure only one of them saves it.
+let claimsIndexed = null;
+async function claimJob(userId, url) {
+  const col = mongoose.connection.db.collection('whatsappjobclaims');
+  claimsIndexed ||= col.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 }).catch(() => { claimsIndexed = null; });
+  const _id = `${userId}:${postingKey(url) || url}`;
+  const now = new Date();
+  const res = await col.updateOne(
+    { _id, expiresAt: { $lte: now } },
+    { $set: { expiresAt: new Date(now.getTime() + 2 * 60_000) } },
+    { upsert: true },
+  ).catch((e) => (e.code === 11000 ? null : Promise.reject(e)));
+  return Boolean(res);
+}
+
+async function releaseJob(userId, url) {
+  await mongoose.connection.db.collection('whatsappjobclaims').deleteOne({ _id: `${userId}:${postingKey(url) || url}` }).catch(() => {});
+}
+
+// Per user, so a flood of forwards can't fill the database.
+const jobsPerHour = new MongoRateLimitStore({ prefix: 'wa-jobs' });
+jobsPerHour.init({ windowMs: 60 * 60_000 });
+const MAX_JOBS_PER_HOUR = 60;
+
+const nameFromWebsite = (website) => {
+  try { return new URL(website).hostname.split('.').slice(-2, -1)[0].replace(/^\w/, (c) => c.toUpperCase()); } catch { return ''; }
+};
+
+const appLink = (id) => `${site()}/applications/${id}`;
+const already = (dup) => `Already saved: ${dup.jobTitle} at ${dup.company.name} (${STATUS_LABELS[dup.status]})\n${appLink(dup._id)}`;
+
+/**
+ * Saves one job. Returns { text } for the reply, or { ask } when a typed single link needs the company
+ * or title (forwarded posts never ask: they're saved with what was found, and flagged).
+ */
+async function saveOne(user, job, opts) {
+  if (!(await claimJob(user._id, job.url))) return { text: `Already saving this job (it arrived twice): ${job.url}` };
+  try { return await saveClaimed(user, job, opts); } finally { await releaseJob(user._id, job.url); }
+}
+
+async function saveClaimed(user, job, { interactive }) {
+  const findDup = await duplicateFinder(user._id);
+  const byLink = findDup({ jobPostingUrl: job.url, company: { name: '' }, jobTitle: '' });
+  if (byLink) return { text: already(byLink) };
+
+  const info = await withTimeout(jobLinkInfo(job.url).catch(() => ({})), 8000, {});
+  const companyName = clean(job.companyName || info.companyName, 120);
+  const jobTitle = clean(job.jobTitle || info.jobTitle, 160);
+  const website = info.website || '';
+  if (interactive && (!companyName || !jobTitle)) return { ask: { url: job.url, companyName, jobTitle, website } };
+
+  const missing = [];
   const body = {
-    company: { name: job.companyName, ...(job.website ? { website: job.website } : {}) },
-    jobTitle: job.jobTitle,
+    company: { name: companyName || nameFromWebsite(website) || 'Unknown company', ...(website ? { website } : {}) },
+    jobTitle: jobTitle || 'Untitled role',
     jobPostingUrl: job.url,
     status: 'saved',
     statusNote: 'Added from WhatsApp',
   };
+  if (!companyName) missing.push('company');
+  if (!jobTitle) missing.push('job title');
   body.source = guessSource({ jobPostingUrl: job.url, company: body.company });
-  const dup = (await duplicateFinder(user._id))(body);
-  if (dup) return reply(`You already have this one: ${dup.jobTitle} at ${dup.company.name} (${STATUS_LABELS[dup.status]}).\n${site()}/applications/${dup._id}`);
+  const dup = findDup(body);
+  if (dup) return { text: already(dup) };
+  const { totalHits } = await jobsPerHour.increment(String(user._id));
+  if (totalHits > MAX_JOBS_PER_HOUR) return { text: `Not saved: more than ${MAX_JOBS_PER_HOUR} jobs in an hour. Try again later.` };
   const app = await createApplication(user._id, body, { force: true });
-  return reply([
-    `✅ Saved: *${app.jobTitle}* at *${app.company.name}*`,
-    app.company.website ? `Website: ${app.company.website}` : '',
-    `${site()}/applications/${app._id}`,
-  ].filter(Boolean).join('\n'));
+  return {
+    text: [
+      `✅ Saved: *${app.jobTitle}* at *${app.company.name}*`,
+      missing.length ? `⚠️ Couldn't find the ${missing.join(' or ')}; please fix it on the website.` : '',
+      appLink(app._id),
+    ].filter(Boolean).join('\n'),
+  };
 }
 
-async function addJob(user, parsed, reply) {
-  const linkOnly = { jobPostingUrl: parsed.url, company: { name: '' }, jobTitle: '' };
-  const byLink = (await duplicateFinder(user._id))(linkOnly);
-  if (byLink) return reply(`You already have this one: ${byLink.jobTitle} at ${byLink.company.name} (${STATUS_LABELS[byLink.status]}).\n${site()}/applications/${byLink._id}`);
-  const info = await withTimeout(jobLinkInfo(parsed.url).catch(() => ({})), 9000, {});
-  return saveJob(user, {
-    url: parsed.url,
-    companyName: parsed.companyName || info.companyName || '',
-    jobTitle: parsed.jobTitle || info.jobTitle || '',
-    website: info.website || '',
-  }, reply);
+/** One or more job links from a message. Several links / forwarded posts are saved without questions. */
+async function addJobs(user, jobs, reply) {
+  if (jobs.length === 1 && !jobs[0].post) {
+    const r = await saveOne(user, jobs[0], { interactive: true });
+    if (r.ask) return askFor(user, r.ask, reply);
+    await setPending(user, null);
+    return reply(r.text);
+  }
+  const results = await Promise.all(jobs.map((j) => saveOne(user, j, { interactive: false })
+    .catch((e) => ({ text: `Couldn't save ${j.url} (${e.message})` }))));
+  return reply(results.map((r) => r.text).join('\n\n'));
+}
+
+async function askFor(user, job, reply) {
+  if (!job.companyName) {
+    await setPending(user, { ...job, step: 'company' });
+    return reply("What's the company name? (Reply *cancel* to stop.)");
+  }
+  await setPending(user, { ...job, step: 'title' });
+  return reply(`Got it: ${job.companyName}. What's the job title? (Reply *skip* to save without one.)`);
 }
 
 async function continuePending(user, pending, text, reply) {
   if (/^(cancel|stop|no)$/i.test(text)) { await setPending(user, null); return reply('OK, not saved.'); }
-  const value = text.replace(/\s+/g, ' ').trim();
-  if (pending.step === 'company') return saveJob(user, { ...pending, companyName: value.slice(0, 120) }, reply);
-  return saveJob(user, { ...pending, jobTitle: /^skip$/i.test(value) ? 'Untitled role' : value.slice(0, 160) }, reply);
+  const value = clean(text, 160);
+  const job = pending.step === 'company'
+    ? { ...pending, companyName: value.slice(0, 120) }
+    : { ...pending, jobTitle: /^skip$/i.test(value) ? 'Untitled role' : value };
+  if (!job.jobTitle) return askFor(user, job, reply);
+  await setPending(user, null);
+  const r = await saveOne(user, { ...job, post: false }, { interactive: false });
+  return reply(r.text);
 }
 
 // ---------- reminders ----------
@@ -212,27 +335,35 @@ async function firstDelivery(id) {
 }
 
 /** Handles one incoming WhatsApp message: { id, from, text }. Replies on WhatsApp. */
-export async function handleIncoming({ id, from, text }) {
+export async function handleIncoming({ id, from, text, timestamp, forwarded = false }) {
   if (!id || !/^\d{6,15}$/.test(from || '') || !(await firstDelivery(id))) return;
-  const reply = (body) => sendText(from, body);
+  // When the person sent it (Meta's timestamp; it may be redelivered much later). Replies are only
+  // sent inside the free window that this message opened, and never for messages that are too old.
+  const now = new Date();
+  const sentAt = Number.isFinite(Number(timestamp)) && Number(timestamp) > 0 ? new Date(Math.min(Number(timestamp) * 1000, now.getTime())) : now;
+  const reply = (body) => sendText(from, body, { lastInboundAt: sentAt });
   const msg = String(text || '').trim().slice(0, 3000);
 
   const code = /^(?:link|connect)\s+(JT-?[A-F0-9]{5}-?[A-F0-9]{5})\b/i.exec(msg);
-  if (code) return link(from, code[1], reply);
+  if (code) return insideFreeWindow(sentAt) ? link(from, code[1], reply, sentAt) : undefined;
 
   const user = await User.findOne({ 'whatsapp.phone': from }).select('+whatsapp.pending');
   if (!user) {
+    if (!insideFreeWindow(sentAt)) return undefined;
     const { totalHits } = await strangerReplies.increment(from);
     if (totalHits > 2) return undefined;
     return reply(`Hi! This number isn't connected to a Job Tracker account yet. Sign in at ${site()}/settings and use "Connect WhatsApp".`);
   }
-  await User.updateOne({ _id: user._id }, { 'whatsapp.lastInboundAt': new Date() });
+  // Keep the newest time only (an old redelivered message mustn't move it back).
+  await User.updateOne({ _id: user._id, $or: [{ 'whatsapp.lastInboundAt': { $lt: sentAt } }, { 'whatsapp.lastInboundAt': null }] }, { 'whatsapp.lastInboundAt': sentAt });
+  if (!insideFreeWindow(sentAt)) return undefined;
   if (!msg) return reply(`I can only read text messages.\n\n${HELP}`);
 
   const lower = msg.toLowerCase();
   const pending = user.whatsapp?.pending?.expiresAt > new Date() ? user.whatsapp.pending : null;
-  const job = parseJobMessage(msg);
-  if (job) return addJob(user, job, reply);
+  // Forwarded messages never start a question-and-answer, so several can arrive at once.
+  const jobs = extractJobs(msg).map((j) => ({ ...j, post: j.post || forwarded }));
+  if (jobs.length) return addJobs(user, jobs, reply);
   if (/^(hi|hello|hey|help|menu|start|\?)\W*$/.test(lower)) return reply(HELP);
   if (/^(disconnect|unlink|logout)\W*$/.test(lower) || (!pending && lower === 'stop')) {
     await User.updateOne({ _id: user._id }, { $unset: { whatsapp: 1 } });

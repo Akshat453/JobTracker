@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { Reminder, User } from '../models/index.js';
 import { env } from '../config/env.js';
 import { sendMail, isMailConfigured } from './mailer.js';
-import { sendText, sendTemplate, isWhatsAppConfigured } from './whatsapp/client.js';
+import { sendText, insideFreeWindow, isWhatsAppConfigured } from './whatsapp/client.js';
 
 const TYPE_PREF = { interview: 'interviewReminders', follow_up: 'followUpReminders', deadline: 'deadlineReminders', custom: 'followUpReminders' };
 
@@ -79,22 +79,22 @@ export async function runReminderNotifications(now = new Date(), { userId } = {}
   return sent;
 }
 
-const WINDOW_MS = 24 * 3_600_000; // WhatsApp allows free-form messages for 24 h after the user's last one
 const fmtShort = (date, timeZone) => {
   try { return date.toLocaleString('en-US', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone }); } catch { return date.toISOString(); }
 };
 
 /**
- * Sends due reminders on WhatsApp to users who connected it. Reminders set from WhatsApp ("remind me
- * … at 5pm") and other custom ones go out at their time; interview, follow-up and deadline reminders
- * go out within the user's lead time, like the emails. Each reminder is sent once (whatsappedAt).
- * Outside WhatsApp's 24-hour window only an approved template may be sent; without one configured,
- * those reminders wait until the user next messages the bot. Returns the number of users messaged.
+ * Sends due reminders on WhatsApp, for free only: a reminder goes on WhatsApp only while the user
+ * messaged the bot less than ~24 hours ago (see client.js). Otherwise it is not sent on WhatsApp at all,
+ * now or later; email reminders (if turned on) cover it.
+ *
+ * Reminders set from WhatsApp and other custom ones go at their time; interview, follow-up and deadline
+ * reminders go within the user's lead time, like the emails. Each reminder is considered once
+ * (whatsappedAt), whether it was sent or skipped. Returns the number of users messaged.
  */
 export async function runWhatsAppReminders(now = new Date(), { userId } = {}) {
   if (!isWhatsAppConfigured()) return 0;
   const users = await User.find({ 'whatsapp.phone': { $type: 'string' }, 'whatsapp.remindersEnabled': { $ne: false }, ...(userId ? { _id: userId } : {}) });
-  const template = env.whatsapp.reminderTemplate;
   let sent = 0;
   for (const user of users) {
     try {
@@ -103,24 +103,17 @@ export async function runWhatsAppReminders(now = new Date(), { userId } = {}) {
       const horizon = new Date(now.getTime() + (prefs.leadTimeHours || 24) * 3_600_000);
       const candidates = await Reminder.find({ user: user._id, completed: false, whatsappedAt: null, dueDate: { $lte: horizon } })
         .populate('application', 'company.name jobTitle').sort({ dueDate: 1 });
-      // Long-past reminders (e.g. from before WhatsApp was connected) are skipped, not sent late.
-      const stale = candidates.filter((r) => r.dueDate < new Date(now.getTime() - WINDOW_MS));
-      if (stale.length) await Reminder.updateMany({ _id: { $in: stale.map((r) => r._id) } }, { whatsappedAt: now });
-      const due = candidates.filter((r) => !stale.includes(r)
-        && (r.type === 'custom' ? r.dueDate <= now : prefs[TYPE_PREF[r.type]] !== false));
+      const due = candidates.filter((r) => (r.type === 'custom' ? r.dueDate <= now : prefs[TYPE_PREF[r.type]] !== false));
       if (!due.length) continue;
 
-      const line = (r) => `${r.title} (${r.dueDate < now ? 'was due' : 'due'} ${fmtShort(r.dueDate, timeZone)})${r.application?.company?.name ? ` · ${r.application.company.name}` : ''}`;
-      const inWindow = user.whatsapp.lastInboundAt && now - user.whatsapp.lastInboundAt < WINDOW_MS;
-      if (inWindow) {
-        await sendText(user.whatsapp.phone, `⏰ ${due.length === 1 ? 'Reminder' : 'Reminders'}:\n\n${due.map((r) => `• ${line(r)}`).join('\n')}\n\nReply *reminders* to see all.`);
-      } else if (template) {
-        await sendTemplate(user.whatsapp.phone, template, [due.map(line).join('; ')]);
-      } else {
-        continue; // can't message them now; tried again on the next run
+      const lastInboundAt = user.whatsapp.lastInboundAt;
+      if (insideFreeWindow(lastInboundAt, now)) {
+        const line = (r) => `${r.title} (${r.dueDate < now ? 'was due' : 'due'} ${fmtShort(r.dueDate, timeZone)})${r.application?.company?.name ? ` · ${r.application.company.name}` : ''}`;
+        await sendText(user.whatsapp.phone, `⏰ ${due.length === 1 ? 'Reminder' : 'Reminders'}:\n\n${due.map((r) => `• ${line(r)}`).join('\n')}\n\nReply *reminders* to see all.`, { lastInboundAt });
+        sent += 1;
       }
+      // Sent, or skipped because the free window had closed: either way never sent on WhatsApp later.
       await Reminder.updateMany({ _id: { $in: due.map((r) => r._id) } }, { whatsappedAt: now });
-      sent += 1;
     } catch (e) {
       console.error(`[notifier] WhatsApp reminders for user ${user._id} failed: ${e.message}`);
     }

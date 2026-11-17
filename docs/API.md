@@ -115,12 +115,12 @@ Statuses: `saved, applied, assessment_pending, assessment_completed, interview_s
 |---|---|---|
 | GET | `/whatsapp` | `{ configured, botNumber, connected, phone (masked), linkedAt, remindersEnabled }` |
 | POST | `/whatsapp/link-code` | One-time code (10 minutes) and a `wa.me` link with the message to send. 20 per hour |
-| PUT | `/whatsapp` | `{ remindersEnabled }` |
+| PUT | `/whatsapp` | `{ remindersEnabled?, featureEnabled? }`. `featureEnabled: false` disconnects the number and blocks connecting until turned back on |
 | DELETE | `/whatsapp` | Disconnects the number |
 | GET | `/whatsapp/webhook` | Meta's webhook check (`hub.verify_token` must match `WHATSAPP_VERIFY_TOKEN`). No user auth |
 | POST | `/whatsapp/webhook` | Incoming messages from Meta. Requires a valid `X-Hub-Signature-256`. No user auth |
 
-Bot messages: `link <code>`, a job link (optionally with the company name, `company:` / `title:` labels), `remind me to … <time>`, `reminders`, `saved`, `help`, `cancel`, `disconnect`.
+Bot messages: `link <code>`, a job link (optionally with the company name, `company:` / `title:` labels), forwarded group posts (up to 10 links each; text, or the caption of an image / PDF), `remind me to … <time>`, `reminders`, `saved`, `help`, `cancel`, `disconnect`.
 
 ## Resumes & documents
 

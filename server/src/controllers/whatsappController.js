@@ -11,6 +11,7 @@ function status(user) {
   const wa = user.whatsapp || {};
   return {
     configured: env.whatsapp.enabled,
+    featureEnabled: !user.whatsappOff,
     botNumber: env.whatsapp.enabled ? env.whatsapp.botNumber : null,
     connected: Boolean(wa.phone),
     phone: mask(wa.phone),
@@ -29,17 +30,27 @@ export const getStatus = asyncHandler(async (req, res) => {
 /** A one-time code to send from WhatsApp; the page polls getStatus until the number is connected. */
 export const linkCode = asyncHandler(async (req, res) => {
   requireConfigured();
+  if ((await User.findById(req.user._id).select('whatsappOff'))?.whatsappOff) throw ApiError.badRequest('WhatsApp is turned off for your account. Turn it on first.');
   const { code, expiresInMinutes } = await createLinkCode(req.user);
   const text = `link ${code}`;
   res.json({ code, text, expiresInMinutes, url: `https://wa.me/${env.whatsapp.botNumber}?text=${encodeURIComponent(text)}` });
 });
 
 export const updateSettings = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
-  if (!user.whatsapp?.phone) throw ApiError.badRequest('WhatsApp is not connected');
-  user.whatsapp.remindersEnabled = req.body.remindersEnabled;
-  await user.save();
-  res.json(status(user));
+  const { remindersEnabled, featureEnabled } = req.body;
+  if (featureEnabled === false) {
+    // Off means off: disconnect the number and cancel any connect code.
+    await User.updateOne({ _id: req.user._id }, { $set: { whatsappOff: true }, $unset: { whatsapp: 1, whatsappLinkCode: 1, whatsappLinkExpiresAt: 1 } });
+  } else if (featureEnabled === true) {
+    await User.updateOne({ _id: req.user._id }, { $set: { whatsappOff: false } });
+  }
+  if (remindersEnabled !== undefined) {
+    const user = await User.findById(req.user._id);
+    if (!user.whatsapp?.phone) throw ApiError.badRequest('WhatsApp is not connected');
+    user.whatsapp.remindersEnabled = remindersEnabled;
+    await user.save();
+  }
+  res.json(status(await User.findById(req.user._id)));
 });
 
 export const disconnect = asyncHandler(async (req, res) => {
@@ -81,14 +92,14 @@ export const receiveWebhook = asyncHandler(async (req, res) => {
       // Only messages to our own number (one Meta app can serve several).
       if (env.whatsapp.phoneNumberId && value.metadata?.phone_number_id && value.metadata.phone_number_id !== env.whatsapp.phoneNumberId) continue;
       for (const m of value.messages || []) {
-        messages.push({ id: m.id, from: String(m.from || ''), text: m.type === 'text' ? m.text?.body : m.type === 'button' ? m.button?.text : '' });
+        // Text, or the caption of a forwarded poster / PDF / video.
+        const text = m.type === 'text' ? m.text?.body : m[m.type]?.caption || '';
+        messages.push({ id: m.id, from: String(m.from || ''), timestamp: m.timestamp, text, forwarded: Boolean(m.context?.forwarded || m.context?.frequently_forwarded) });
       }
     }
   }
-  for (const m of messages.slice(0, 20)) {
-    // One failing message shouldn't make Meta resend the whole batch.
-    // eslint-disable-next-line no-await-in-loop
-    await handleIncoming(m).catch((e) => console.error('[whatsapp] message failed:', e.message));
-  }
+  // Several messages (e.g. a burst of forwarded jobs) are handled side by side. One failing message
+  // shouldn't make Meta resend the whole batch.
+  await Promise.all(messages.slice(0, 20).map((m) => handleIncoming(m).catch((e) => console.error('[whatsapp] message failed:', e.message))));
   return res.sendStatus(200);
 });

@@ -47,9 +47,6 @@ export const env = {
     verifyToken: isTest ? 'test-verify-token' : process.env.WHATSAPP_VERIFY_TOKEN || '',
     // The bot's number in international format without "+", shown to users for wa.me links.
     botNumber: (process.env.WHATSAPP_BOT_NUMBER || (isTest ? '15550001111' : '')).replace(/\D/g, ''),
-    // Approved "utility" template for reminders sent more than 24 h after the user's last message.
-    reminderTemplate: process.env.WHATSAPP_REMINDER_TEMPLATE || '',
-    templateLanguage: process.env.WHATSAPP_TEMPLATE_LANGUAGE || 'en',
     apiVersion: process.env.WHATSAPP_API_VERSION || 'v23.0',
   },
 };
