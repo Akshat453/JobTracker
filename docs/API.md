@@ -102,6 +102,13 @@ Returns `201 { application }`, fully populated (`resume`, `documents`, `emailUse
 
 Statuses: `saved, applied, assessment_pending, assessment_completed, interview_scheduled, interviewing, offer, accepted, rejected, on_hold, withdrawn`.
 
+## Resume sections
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/resume-profile` | The user's resume sections (`contact`, `summary`, `experience`, `education`, `projects`, `skills`, `extras`); empty lists if nothing saved yet |
+| PUT | `/resume-profile` | Replaces all sections. Dates are `YYYY` or `YYYY-MM`; descriptions hold one point per line. Limits: 30 jobs, 15 education entries, 30 projects, 30 skill groups, 20 extra sections |
+
 ## Resumes & documents
 
 Every version of a resume is its own document, so an application keeps pointing at the exact version it was sent with. Versions share `family` (the first version's id) and are numbered by `versionNumber`. Source files are checked by their contents, not just their extension (`.tex` must be UTF-8 text; `.docx`/`.zip` must be zip archives).

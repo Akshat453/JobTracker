@@ -6,3 +6,4 @@ export { Interview } from './Interview.js';
 export { Reminder } from './Reminder.js';
 export { SharedJob } from './SharedJob.js';
 export { Friendship } from './Friendship.js';
+export { ResumeProfile } from './ResumeProfile.js';

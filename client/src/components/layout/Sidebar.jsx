@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, Briefcase, FileText, Mail, CalendarClock, Bell, BarChart3, Settings, X, Users,
+  LayoutDashboard, Briefcase, FileText, Mail, CalendarClock, Bell, BarChart3, Settings, X, Users, ClipboardList,
 } from 'lucide-react';
 import { cn } from '../../lib/format.js';
 
@@ -8,6 +8,7 @@ export const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/applications', label: 'Applications', icon: Briefcase },
   { to: '/resumes', label: 'Resume Library', icon: FileText },
+  { to: '/resume-sections', label: 'Resume Sections', icon: ClipboardList },
   { to: '/email-accounts', label: 'Email Accounts', icon: Mail },
   { to: '/interviews', label: 'Interviews', icon: CalendarClock },
   { to: '/reminders', label: 'Reminders', icon: Bell, badgeKey: 'reminders' },

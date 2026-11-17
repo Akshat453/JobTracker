@@ -1110,3 +1110,51 @@ test('CSV import picks the source from the posting link', async () => {
   for (const r of res.body.results) sources.push((await authB(api().get(`/api/applications/${r.id}`))).body.application.source);
   assert.deepEqual(sources, ['LinkedIn', 'Company Website', 'Other']);
 });
+
+describe('resume sections', () => {
+  const full = {
+    contact: { fullName: 'Test Person', email: 'me@example.com', linkedin: 'https://linkedin.com/in/test' },
+    summary: 'Engineer.',
+    experience: [{ jobTitle: 'Intern', company: 'Acme', from: '2026-05', to: '2026-07', description: '● Built a thing\n● Shipped it' }],
+    education: [{ school: 'Uni', degree: 'B.Tech', field: 'CE', from: '2023', to: '2027' }],
+    skills: [{ category: 'Languages', items: 'JS, Python' }],
+    extras: [{ title: 'Certifications', content: 'AWS' }],
+  };
+
+  test('starts empty, then saves and returns every section', async () => {
+    const empty = await authA(api().get('/api/resume-profile'));
+    assert.equal(empty.status, 200);
+    assert.deepEqual(empty.body.profile.experience, []);
+    const saved = await authA(api().put('/api/resume-profile')).send(full);
+    assert.equal(saved.status, 200);
+    const p = (await authA(api().get('/api/resume-profile'))).body.profile;
+    assert.equal(p.experience[0].description, '● Built a thing\n● Shipped it');
+    assert.ok(p.experience[0]._id);
+    assert.equal(p.education[0].from, '2023');
+    assert.equal(p.user, undefined);
+  });
+
+  test('keeps entry ids on later saves and removes deleted entries', async () => {
+    const p = (await authA(api().get('/api/resume-profile'))).body.profile;
+    const id = p.experience[0]._id;
+    const res = await authA(api().put('/api/resume-profile')).send({ ...full, experience: [{ ...p.experience[0], jobTitle: 'SDE Intern' }], education: [] });
+    assert.equal(res.body.profile.experience[0]._id, id);
+    assert.equal(res.body.profile.experience[0].jobTitle, 'SDE Intern');
+    assert.deepEqual(res.body.profile.education, []);
+  });
+
+  test('is private to each user', async () => {
+    const b = (await authB(api().get('/api/resume-profile'))).body.profile;
+    assert.notEqual(b.contact?.fullName, 'Test Person');
+    assert.equal((await api().get('/api/resume-profile')).status, 401);
+  });
+
+  test('rejects bad dates, oversized text and too many entries; ignores unknown fields', async () => {
+    assert.equal((await authA(api().put('/api/resume-profile')).send({ experience: [{ from: 'May 2026' }] })).status, 400);
+    assert.equal((await authA(api().put('/api/resume-profile')).send({ summary: 'x'.repeat(4001) })).status, 400);
+    assert.equal((await authA(api().put('/api/resume-profile')).send({ skills: Array.from({ length: 31 }, () => ({ category: 'a' })) })).status, 400);
+    const res = await authA(api().put('/api/resume-profile')).send({ ...full, user: '000000000000000000000000', $where: 'x' });
+    assert.equal(res.status, 200);
+    assert.equal((await authA(api().get('/api/resume-profile'))).body.profile.contact.fullName, 'Test Person');
+  });
+});

@@ -9,7 +9,7 @@
 import PDFDocument from 'pdfkit';
 import { env } from './config/env.js';
 import { connectDB, disconnectDB } from './config/db.js';
-import { User, EmailAccount, Resume, Application, Interview, Reminder } from './models/index.js';
+import { User, EmailAccount, Resume, Application, Interview, Reminder, ResumeProfile } from './models/index.js';
 import { saveFile, deleteFile } from './services/fileStorage.js';
 import { syncApplicationReminders, syncInterviewReminder } from './services/reminderSync.js';
 import { STATUS_LABELS, PRIORITY_RANK } from './utils/constants.js';
@@ -61,7 +61,7 @@ async function main() {
     const id = existing._id;
     const oldFiles = await Resume.find({ user: id }).select('file.storedName').lean();
     await Promise.all(oldFiles.map((r) => deleteFile(r.file.storedName)));
-    await Promise.all([Application, Interview, Reminder, Resume, EmailAccount].map((M) => M.deleteMany({ user: id })));
+    await Promise.all([Application, Interview, Reminder, Resume, EmailAccount, ResumeProfile].map((M) => M.deleteMany({ user: id })));
     await existing.deleteOne();
   }
 

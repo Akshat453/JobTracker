@@ -13,6 +13,7 @@ const pageLoaders = {
   ApplicationForm: () => import('./pages/ApplicationFormPage.jsx'),
   ApplicationDetail: () => import('./pages/ApplicationDetailPage.jsx'),
   Resumes: () => import('./pages/ResumesPage.jsx'),
+  ResumeSections: () => import('./pages/ResumeSectionsPage.jsx'),
   EmailAccounts: () => import('./pages/EmailAccountsPage.jsx'),
   Interviews: () => import('./pages/InterviewsPage.jsx'),
   Reminders: () => import('./pages/RemindersPage.jsx'),
@@ -26,6 +27,7 @@ const ApplicationsPage = lazy(pageLoaders.Applications);
 const ApplicationFormPage = lazy(pageLoaders.ApplicationForm);
 const ApplicationDetailPage = lazy(pageLoaders.ApplicationDetail);
 const ResumesPage = lazy(pageLoaders.Resumes);
+const ResumeSectionsPage = lazy(pageLoaders.ResumeSections);
 const EmailAccountsPage = lazy(pageLoaders.EmailAccounts);
 const InterviewsPage = lazy(pageLoaders.Interviews);
 const RemindersPage = lazy(pageLoaders.Reminders);
@@ -87,6 +89,7 @@ export default function App() {
           {/* Kanban is a view of the Applications page; keep old /kanban links working. */}
           <Route path="kanban" element={<KanbanRedirect />} />
           <Route path="resumes" element={<ResumesPage />} />
+          <Route path="resume-sections" element={<ResumeSectionsPage />} />
           <Route path="email-accounts" element={<EmailAccountsPage />} />
           <Route path="interviews" element={<InterviewsPage />} />
           <Route path="reminders" element={<RemindersPage />} />

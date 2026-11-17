@@ -24,6 +24,11 @@ export const applicationsApi = {
   importCsv: (rows, { dryRun } = {}) => data(api.post('/applications/import', { rows, ...(dryRun ? { dryRun: true } : {}) })),
 };
 
+export const resumeProfileApi = {
+  get: () => data(api.get('/resume-profile')),
+  save: (body) => data(api.put('/resume-profile', body)),
+};
+
 export const resumesApi = {
   list: (params) => data(api.get('/resumes', { params })),
   get: (id) => data(api.get(`/resumes/${id}`)),

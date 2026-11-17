@@ -14,6 +14,7 @@ import * as reminders from '../controllers/reminderController.js';
 import * as analytics from '../controllers/analyticsController.js';
 import * as shares from '../controllers/shareController.js';
 import * as friends from '../controllers/friendController.js';
+import * as resumeProfile from '../controllers/resumeProfileController.js';
 import { runReminderNotifications } from '../services/notifier.js';
 import { sendMail, isMailConfigured } from '../services/mailer.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
@@ -97,6 +98,10 @@ router.post('/friend-code/regenerate', friendRequestLimiter, friends.regenerateC
 router.post('/friends/send-jobs', sendJobsLimiter, validate(S.sendJobsSchema), friends.sendJobs);
 router.post('/friends/:id/accept', friends.acceptRequest);
 router.delete('/friends/:id', friends.removeFriendship);
+
+// ---- Resume sections (copy-ready text for job-board forms)
+router.get('/resume-profile', resumeProfile.getProfile);
+router.put('/resume-profile', validate(S.resumeProfileSchema), resumeProfile.saveProfile);
 
 // ---- Resumes & documents
 router.get('/resumes', resumes.listResumes);

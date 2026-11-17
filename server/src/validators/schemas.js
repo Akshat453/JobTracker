@@ -245,3 +245,21 @@ export const sendJobsSchema = z.object({
     .transform((ids) => [...new Set(ids)]),
   message: optStr(500),
 });
+
+// ---------- Resume sections (copy-ready text for job-board forms) ----------
+const text = (max) => z.string().trim().max(max).optional().default('');
+const ym = z.string().trim().regex(/^$|^\d{4}(-(0[1-9]|1[0-2]))?$/, 'Use a year, or a month and year').optional().default('');
+const entryId = optObjectId;
+const entries = (shape, max, label) => z.array(z.object({ _id: entryId, ...shape })).max(max, `At most ${max} ${label}`).optional().default([]);
+export const resumeProfileSchema = z.object({
+  contact: z.object({
+    fullName: text(120), email: text(200), phone: text(40), location: text(160),
+    linkedin: text(500), github: text(500), portfolio: text(500), other: text(500),
+  }).optional().default({}),
+  summary: text(4000),
+  experience: entries({ jobTitle: text(160), company: text(160), location: text(160), from: ym, to: ym, current: z.boolean().optional().default(false), description: text(6000) }, 30, 'jobs'),
+  education: entries({ school: text(200), degree: text(160), field: text(160), location: text(160), from: ym, to: ym, grade: text(60), description: text(4000) }, 15, 'education entries'),
+  projects: entries({ name: text(160), tech: text(400), link: text(500), from: ym, to: ym, description: text(6000) }, 30, 'projects'),
+  skills: entries({ category: text(100), items: text(2000) }, 30, 'skill groups'),
+  extras: entries({ title: text(100), content: text(6000) }, 20, 'extra sections'),
+});
